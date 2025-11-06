@@ -71,7 +71,7 @@ class LavaEnv(MiniGridEnv):
         self.channel_first_obs = channel_first_obs
 
         self.one_hot_encode_tiles = one_hot_encode_tiles
-        self._one_hot_encoding = np.eye(len(OBJECT_TO_IDX), dtype=np.uint8)
+        self._one_hot_encoding = np.eye(len(OBJECT_TO_IDX), dtype=np.float32)
 
         mission_space = MissionSpace(mission_func=self._generate_mission)
 
@@ -96,7 +96,7 @@ class LavaEnv(MiniGridEnv):
         follower_observation_space = spaces.Box(
             0, 255,
             (grid_size, grid_size, len(LeaderActions) + self.observation_space.spaces["image"].shape[-1]),
-            dtype=np.uint8)
+            dtype=np.float32)
         self.observation_space.spaces["follower_image"] = follower_observation_space
 
         if self.one_hot_encode_tiles:
@@ -242,6 +242,8 @@ class LavaEnv(MiniGridEnv):
 
     def gen_obs(self):
         obs = super().gen_obs()
+        if obs["image"].dtype != np.float32:
+            obs["image"] = obs["image"].astype(np.float32)
 
         if self.one_hot_encode_tiles:
             obs["image"] = self._one_hot_encoding[obs["image"][..., 0]]
@@ -249,7 +251,7 @@ class LavaEnv(MiniGridEnv):
         # give obs without leader action here, because there the leader hasn't decided its action yet
         follower_obs = np.concatenate([
             obs["image"],
-            np.zeros((obs["image"].shape[0], obs["image"].shape[1], self.leader_action_space.n), dtype=np.uint8),
+            np.zeros((obs["image"].shape[0], obs["image"].shape[1], self.leader_action_space.n), dtype=obs.image.dtype),
         ], axis=-1)
         obs["follower_image"] = follower_obs
 
