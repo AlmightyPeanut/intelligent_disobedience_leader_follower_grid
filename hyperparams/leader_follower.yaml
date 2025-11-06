@@ -1,5 +1,4 @@
 Minigrid: &minigrid-defaults
-  env_wrapper: policies.OneHotObsWrapper
   leader_algorithm: 'dqn'
   leader_policy: 'CnnPolicy'
   follower_algorithm: 'dqn'
