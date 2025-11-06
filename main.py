@@ -5,8 +5,8 @@ import time
 import gymnasium as gym
 import stable_baselines3 as sb3
 from rl_zoo3 import ALGOS
-from rl_zoo3.exp_manager import ExperimentManager
 
+from experiment_manager2 import ExperimentManagerLF
 from policies.LeaderFollowerAlgorithm import LeaderFollowerAlgorithm
 
 algorithm_config = {
@@ -60,13 +60,13 @@ def main():
 
     ALGOS["leader_follower"] = LeaderFollowerAlgorithm
 
-    exp_manager = ExperimentManager(
+    exp_manager = ExperimentManagerLF(
         args=argparse.Namespace(**algorithm_config, **run_config),
         algo=algorithm_config["algorithm"],
         env_id=run_config["environment_id"],
         log_folder=run_config["log_folder"],
         tensorboard_log=f"{run_config["log_folder"]}/{run_name}",
-        n_timesteps=run_config["min_timesteps"],
+        n_timesteps=run_config["min_learn_timesteps"],
         save_freq=run_config["save_frequency"],
         env_kwargs=run_config["env_kwargs"],
         optimize_hyperparameters=True,
