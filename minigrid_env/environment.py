@@ -274,30 +274,18 @@ class LavaEnv(MiniGridEnv):
             "follower_image": obs["follower_image"],
         }
 
-    def prepare_follower_obs(self, obs: np.ndarray, leader_action: np.ndarray = None):
+    @staticmethod
+    def prepare_follower_obs(obs: np.ndarray, leader_actions: np.ndarray):
         # Overwrites the action in the observation
-        assert obs.shape == self.observation_space.spaces["follower_image"].shape
-        obs[..., -self.leader_action_space.n:] = 0
-        if leader_action is not None:
-            obs[..., leader_action] = 1
+        if obs.ndim == 3:
+            obs[-len(LeaderActions):, ...] = 0
+            obs[:, leader_actions, ...] = 1
+        elif obs.ndim == 4:
+            obs[:, -len(LeaderActions):, ...] = 0
+            obs[:, leader_actions, ...] = 1
+        else:
+            raise ValueError(f"obs has invalid number of dimensions: {obs.shape}. Should be 3 or 4")
         return obs
-
-    # def gen_obs_grid(self, agent_view_size=None):
-    #     # agent has perfect information
-    #     agent_view_size = agent_view_size or self.agent_view_size
-    #     grid = self.grid.slice(1, 1, agent_view_size, agent_view_size)
-    #     grid.set(self.agent_pos[0] - 1, self.agent_pos[1] - 1, Agent())
-    #     return grid, None
-    #
-    # def get_full_render(self, highlight, tile_size):
-    #     # Render the whole grid without highlights
-    #     img = self.grid.render(
-    #         tile_size,
-    #         self.agent_pos,
-    #         self.agent_dir,
-    #     )
-    #
-    #     return img
 
 
 def main():
