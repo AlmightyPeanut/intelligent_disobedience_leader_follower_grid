@@ -242,16 +242,16 @@ class LavaEnv(MiniGridEnv):
 
     def gen_obs(self):
         obs = super().gen_obs()
-        if obs["image"].dtype != np.float32:
-            obs["image"] = obs["image"].astype(np.float32)
-
         if self.one_hot_encode_tiles:
             obs["image"] = self._one_hot_encoding[obs["image"][..., 0]]
+
+        if obs["image"].dtype != np.float32:
+            obs["image"] = obs["image"].astype(np.float32)
 
         # give obs without leader action here, because there the leader hasn't decided its action yet
         follower_obs = np.concatenate([
             obs["image"],
-            np.zeros((obs["image"].shape[0], obs["image"].shape[1], self.leader_action_space.n), dtype=obs.image.dtype),
+            np.zeros((obs["image"].shape[0], obs["image"].shape[1], self.leader_action_space.n), dtype=obs["image"].dtype),
         ], axis=-1)
         obs["follower_image"] = follower_obs
 
