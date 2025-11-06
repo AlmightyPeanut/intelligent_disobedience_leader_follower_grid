@@ -33,13 +33,15 @@ class ExperimentManagerLF(ExperimentManager):
         hyperparams_leader = kwargs.copy()
         sampled_hyperparams_leader = HYPERPARAMS_SAMPLER[self._hyperparams["leader_algorithm"]](trial, self.n_actions, n_envs, additional_args)
         hyperparams_leader.update(sampled_hyperparams_leader)
-        hyperparams_leader["policy_kwargs"] = hyperparams_leader["policy_kwargs"] | kwargs["policy_kwargs"]
+        if "policy_kwargs" in kwargs:
+            hyperparams_leader["policy_kwargs"] = hyperparams_leader["policy_kwargs"] | kwargs["policy_kwargs"]
 
         hyperparams_follower = kwargs.copy()
         # TODO: make the follower actions a variable?
         sampled_hyperparams_follower = HYPERPARAMS_SAMPLER[self._hyperparams["leader_algorithm"]](trial, 2, n_envs, additional_args)
         hyperparams_follower.update(sampled_hyperparams_follower)
-        hyperparams_follower["policy_kwargs"] = hyperparams_follower["policy_kwargs"] | kwargs["policy_kwargs"]
+        if "policy_kwargs" in kwargs:
+            hyperparams_follower["policy_kwargs"] = hyperparams_follower["policy_kwargs"] | kwargs["policy_kwargs"]
 
         env = self.create_envs(n_envs, no_log=True)
 
