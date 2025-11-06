@@ -6,7 +6,7 @@ import gymnasium as gym
 import stable_baselines3 as sb3
 from rl_zoo3 import ALGOS
 
-from experiment_manager2 import ExperimentManagerLF
+from experiment_manager import ExperimentManagerLF
 from policies.LeaderFollowerAlgorithm import LeaderFollowerAlgorithm
 
 algorithm_config = {
