@@ -23,7 +23,7 @@ from stable_baselines3.common.vec_env import VecEnv
 from stable_baselines3.dqn import MultiInputPolicy
 
 from minigrid_env.environment import LavaEnv
-from policies.dqn.LavaEnvFeaturesExtractor import LavaEnvCNNFeaturesExtractor
+from policies.feature_extractors.LavaEnvFeaturesExtractor import LavaEnvCNNFeaturesExtractor
 
 SelfLeaderFollowerAlgorithm = TypeVar("SelfLeaderFollowerAlgorithm", bound="LeaderFollowerAlgorithm")
 
@@ -440,32 +440,6 @@ class LeaderFollowerAlgorithm(BaseAlgorithm):
             follower_action = follower_buffer_action
         return (leader_action, leader_buffer_action), (follower_action, follower_buffer_action)
 
-    @staticmethod
-    def _learn_model(
-            model: BaseAlgorithm,
-            total_timesteps: int,
-            callback: MaybeCallback = None,
-            log_interval: int = 100,
-            tb_log_name: str = "run",
-            reset_num_timesteps: bool = True,
-            progress_bar: bool = False,
-            async_eval: AsyncEval = None,
-    ) -> BaseAlgorithm:
-        # TODO: collect rollouts together
-        learn_kwargs = dict(
-            total_timesteps=total_timesteps,
-            callback=callback,
-            log_interval=log_interval,
-            tb_log_name=tb_log_name,
-            reset_num_timesteps=reset_num_timesteps,
-            progress_bar=progress_bar,
-        )
-
-        if async_eval is not None:
-            learn_kwargs['async_eval'] = async_eval
-
-        return model.learn(**learn_kwargs)
-
     def predict(
             self,
             observation: np.ndarray | dict[str, np.ndarray],
@@ -475,7 +449,8 @@ class LeaderFollowerAlgorithm(BaseAlgorithm):
     ) -> tuple[np.ndarray, tuple[np.ndarray, ...] | None]:
         leader_state, follower_state = self.get_model_states(state)
 
-        leader_action, leader_state = self.leader_model.predict(observation["image"], leader_state, episode_start, deterministic)
+        leader_action, leader_state = self.leader_model.predict(observation["image"], leader_state, episode_start,
+                                                                deterministic)
 
         follower_obs = LavaEnv.prepare_follower_obs(observation["follower_image"], leader_action)
         follower_action, follower_state = self.follower_model.predict(follower_obs, follower_state, episode_start,

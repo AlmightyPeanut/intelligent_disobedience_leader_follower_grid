@@ -183,9 +183,9 @@ class LavaEnv(MiniGridEnv):
 
         # if the agent stepped into lava, the reward for the follower is -1
         follower_reward = -1 if isinstance(self.grid.get(*self.agent_pos), Lava) else 1
+        # TODO: test if correct rewards are given for each actor
 
         # reward needs to be encoded to be compatible with gymnasium
-        # TODO: test if correct rewards are given
         encoded_reward = self.encode_reward(leader_reward, follower_reward)
         assert self.decode_reward(encoded_reward) == (leader_reward, follower_reward)
 
