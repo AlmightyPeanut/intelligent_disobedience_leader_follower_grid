@@ -4,6 +4,7 @@ import time
 
 import gymnasium as gym
 import stable_baselines3 as sb3
+import wandb
 from rl_zoo3 import ALGOS
 
 from experiment_manager import ExperimentManagerLF
@@ -49,14 +50,14 @@ def main():
 
     run_name = f"{run_config["environment_id"]}__{algorithm_config["algorithm"]}__{algorithm_config["leader"]}__{algorithm_config["follower"]}__seed_{run_config["seed"]}__{int(time.time())}"
     tags = [f"v{sb3.__version__}"]
-    # run = wandb.init(
-    #     name=run_name,
-    #     project=run_config["wandb_project_name"],
-    #     tags=tags,
-    #     config=algorithm_config,
-    #     sync_tensorboard=True,  # auto-upload sb3's tensorboard metrics
-    #     monitor_gym=True,  # auto-upload the videos of agents playing the game
-    # )
+    run = wandb.init(
+        name=run_name,
+        project=run_config["wandb_project_name"],
+        tags=tags,
+        config=algorithm_config,
+        sync_tensorboard=True,  # auto-upload sb3's tensorboard metrics
+        monitor_gym=True,  # auto-upload the videos of agents playing the game
+    )
 
     ALGOS["leader_follower"] = LeaderFollowerAlgorithm
 
@@ -86,6 +87,10 @@ def main():
     results = exp_manager.setup_experiment()
     if results is not None:
         model, saved_hyperparams = results
+
+        run_config["saved_hyperparams"] = saved_hyperparams
+        assert run is not None
+        run.config.setdefaults(run_config | algorithm_config)
 
         # Normal training
         if model is not None:
