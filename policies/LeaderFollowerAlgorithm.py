@@ -11,7 +11,6 @@ from gymnasium import spaces
 from rl_zoo3 import ALGOS
 from sb3_contrib.common.vec_env import AsyncEval
 from stable_baselines3.common.base_class import BaseAlgorithm, SelfBaseAlgorithm
-from stable_baselines3.common.buffers import ReplayBuffer
 from stable_baselines3.common.callbacks import BaseCallback
 from stable_baselines3.common.env_util import make_vec_env
 from stable_baselines3.common.off_policy_algorithm import OffPolicyAlgorithm
@@ -51,7 +50,7 @@ class LeaderFollowerAlgorithm(BaseAlgorithm):
             tensorboard_log: str = None,
             verbose: int = 0,
             device: th.device | str = "auto",
-            support_multi_env: bool = False,
+            support_multi_env: bool = True,
             monitor_wrapper: bool = True,
             seed: int = None,
             use_sde: bool = False,

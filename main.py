@@ -10,6 +10,8 @@ from rl_zoo3 import ALGOS
 from experiment_manager import ExperimentManagerLF
 from policies.LeaderFollowerAlgorithm import LeaderFollowerAlgorithm
 
+TRACK_RUN = True
+
 algorithm_config = {
     "algorithm": "leader_follower",
     "leader": "dqn",
@@ -50,14 +52,15 @@ def main():
 
     run_name = f"{run_config["environment_id"]}__{algorithm_config["algorithm"]}__{algorithm_config["leader"]}__{algorithm_config["follower"]}__seed_{run_config["seed"]}__{int(time.time())}"
     tags = [f"v{sb3.__version__}"]
-    run = wandb.init(
-        name=run_name,
-        project=run_config["wandb_project_name"],
-        tags=tags,
-        config=algorithm_config,
-        sync_tensorboard=True,  # auto-upload sb3's tensorboard metrics
-        monitor_gym=True,  # auto-upload the videos of agents playing the game
-    )
+    if TRACK_RUN:
+        run = wandb.init(
+            name=run_name,
+            project=run_config["wandb_project_name"],
+            tags=tags,
+            config=algorithm_config,
+            sync_tensorboard=True,  # auto-upload sb3's tensorboard metrics
+            monitor_gym=True,  # auto-upload the videos of agents playing the game
+        )
 
     ALGOS["leader_follower"] = LeaderFollowerAlgorithm
 
@@ -88,9 +91,10 @@ def main():
     if results is not None:
         model, saved_hyperparams = results
 
-        run_config["saved_hyperparams"] = saved_hyperparams
-        assert run is not None
-        run.config.setdefaults(run_config | algorithm_config)
+        if TRACK_RUN:
+            run_config["saved_hyperparams"] = saved_hyperparams
+            assert run is not None
+            run.config.setdefaults(run_config | algorithm_config)
 
         # Normal training
         if model is not None:
