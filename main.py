@@ -10,7 +10,7 @@ from rl_zoo3 import ALGOS
 from experiment_manager import ExperimentManagerLF
 from policies.LeaderFollowerAlgorithm import LeaderFollowerAlgorithm
 
-TRACK_RUN = True
+TRAINING_RUN = False
 
 algorithm_config = {
     "algorithm": "leader_follower",
@@ -29,7 +29,9 @@ run_config = {
     "log_folder": "./logs",
     "min_timesteps": 50_000,
     "save_frequency": 10_000,
+    "tensorboard_log_folder": "./runs",
     "env_kwargs": {},
+    "eval_env_kwargs": {"return_summed_reward": True},
     "n_trials": 500,
     "n_parallel_jobs": 1,
     "n_startup_trials": 10,
@@ -50,17 +52,18 @@ def main():
         run_config["environment_max_steps"],
     )
 
-    run_name = f"{run_config["environment_id"]}__{algorithm_config["algorithm"]}__{algorithm_config["leader"]}__{algorithm_config["follower"]}__seed_{run_config["seed"]}__{int(time.time())}"
+    run_name = f"{run_config["environment_id"]}__{algorithm_config["algorithm"]}__{algorithm_config["leader"]}__{algorithm_config["follower"]}__seed_{run_config["seed"]}"
     tags = [f"v{sb3.__version__}"]
-    if TRACK_RUN:
+    if TRAINING_RUN:
         run = wandb.init(
             name=run_name,
             project=run_config["wandb_project_name"],
             tags=tags,
             config=algorithm_config,
-            sync_tensorboard=True,  # auto-upload sb3's tensorboard metrics
+            # sync_tensorboard=True,  # auto-upload sb3's tensorboard metrics
             monitor_gym=True,  # auto-upload the videos of agents playing the game
         )
+        wandb.tensorboard.patch(root_logdir=run_config["tensorboard_log_folder"])
 
     ALGOS["leader_follower"] = LeaderFollowerAlgorithm
 
@@ -69,11 +72,12 @@ def main():
         algo=algorithm_config["algorithm"],
         env_id=run_config["environment_id"],
         log_folder=run_config["log_folder"],
-        tensorboard_log=f"{run_config["log_folder"]}/{run_name}",
+        tensorboard_log=f"{run_config["tensorboard_log_folder"]}/{run_name}",
         n_timesteps=run_config["min_learn_timesteps"],
         save_freq=run_config["save_frequency"],
         env_kwargs=run_config["env_kwargs"],
-        optimize_hyperparameters=True,
+        eval_env_kwargs=run_config["eval_env_kwargs"],
+        optimize_hyperparameters=not TRAINING_RUN,
         n_trials=run_config["n_trials"],
         n_jobs=run_config["n_parallel_jobs"],
         optimization_log_path=f"{run_config["log_folder"]}/{run_name}/hp_optimization/",
@@ -91,7 +95,7 @@ def main():
     if results is not None:
         model, saved_hyperparams = results
 
-        if TRACK_RUN:
+        if TRAINING_RUN:
             run_config["saved_hyperparams"] = saved_hyperparams
             assert run is not None
             run.config.setdefaults(run_config | algorithm_config)
