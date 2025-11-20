@@ -1,6 +1,9 @@
 import io
 import os
 import pathlib
+import sys
+import time
+import warnings
 from copy import deepcopy
 from typing import Any, TypeVar, Union, Optional, Iterable
 
@@ -17,7 +20,7 @@ from stable_baselines3.common.off_policy_algorithm import OffPolicyAlgorithm
 from stable_baselines3.common.policies import BasePolicy
 from stable_baselines3.common.type_aliases import MaybeCallback, GymEnv, Schedule, TrainFreq, RolloutReturn, \
     TrainFrequencyUnit
-from stable_baselines3.common.utils import should_collect_more_steps
+from stable_baselines3.common.utils import should_collect_more_steps, safe_mean
 from stable_baselines3.common.vec_env import VecEnv
 from stable_baselines3.dqn import MultiInputPolicy
 
@@ -33,7 +36,6 @@ class LeaderFollowerAlgorithm(BaseAlgorithm):
         "MultiInput": MultiInputPolicy,
     }
 
-    # Is not used but needed for BaseAlgorithm
     def __init__(
             self,
             leader_algorithm: str,
@@ -62,7 +64,7 @@ class LeaderFollowerAlgorithm(BaseAlgorithm):
             env=env,
             learning_rate=learning_rate,
             stats_window_size=stats_window_size,
-            tensorboard_log=tensorboard_log,
+            tensorboard_log=None,
             verbose=verbose,
             device=device,
             support_multi_env=support_multi_env,
@@ -80,6 +82,8 @@ class LeaderFollowerAlgorithm(BaseAlgorithm):
 
         ############## Leader setup ##############
         self.leader_algorithm_kwargs = leader_algorithm_kwargs or {}
+        if "policy_kwargs" not in self.leader_algorithm_kwargs:
+            self.leader_algorithm_kwargs["policy_kwargs"] = {}
         self.leader_algorithm_kwargs["policy_kwargs"]["features_extractor_class"] = LavaEnvCNNFeaturesExtractor
 
         # This won't be used anyway, but sb3 needs it
@@ -95,11 +99,14 @@ class LeaderFollowerAlgorithm(BaseAlgorithm):
         self.leader_model = ALGOS[leader_algorithm](
             policy=leader_policy,
             env=leader_env,
+            tensorboard_log=os.path.join(tensorboard_log, "leader") if tensorboard_log is not None else None,
             **self.leader_algorithm_kwargs,
         )
 
         ############# Follower setup #############
         self.follower_algorithm_kwargs = follower_algorithm_kwargs or {}
+        if "policy_kwargs" not in self.follower_algorithm_kwargs:
+            self.follower_algorithm_kwargs["policy_kwargs"] = {}
         self.follower_algorithm_kwargs["policy_kwargs"]["features_extractor_class"] = LavaEnvCNNFeaturesExtractor
 
         # This won't be used anyway, but sb3 needs it
@@ -115,6 +122,7 @@ class LeaderFollowerAlgorithm(BaseAlgorithm):
         self.follower_model = ALGOS[follower_algorithm](
             policy=follower_policy,
             env=follower_env,
+            tensorboard_log=os.path.join(tensorboard_log, "follower") if tensorboard_log is not None else None,
             **self.follower_algorithm_kwargs,
         )
 
@@ -319,8 +327,33 @@ class LeaderFollowerAlgorithm(BaseAlgorithm):
         return RolloutReturn(num_collected_steps * env.num_envs, num_collected_episodes, continue_training)
 
     def dump_logs(self) -> None:
-        self.leader_model.dump_logs()
-        # self.follower_model.dump_logs()
+        """
+        Write log data.
+        """
+        assert self.ep_info_buffer is not None
+        assert self.ep_success_buffer is not None
+
+        time_elapsed = max((time.time_ns() - self.start_time) / 1e9, sys.float_info.epsilon)
+        fps = int((self.num_timesteps - self._num_timesteps_at_start) / time_elapsed)
+        self.logger.record("time/episodes", self._episode_num, exclude="tensorboard")
+        if len(self.ep_info_buffer) > 0 and len(self.ep_info_buffer[0]) > 0:
+            decoded_rewards = np.array([LavaEnv.decode_reward(ep_info["r"]) for ep_info in self.ep_info_buffer])
+            leader_rewards = decoded_rewards[..., 0]
+            follower_rewards = decoded_rewards[..., 1]
+            self.logger.record("rollout/leader/ep_rew_mean", safe_mean(leader_rewards))
+            self.logger.record("rollout/follower/ep_rew_mean", safe_mean(follower_rewards))
+            self.logger.record("rollout/ep_len_mean", safe_mean([ep_info["l"] for ep_info in self.ep_info_buffer]))
+        self.logger.record("time/fps", fps)
+        self.logger.record("time/time_elapsed", int(time_elapsed), exclude="tensorboard")
+        self.logger.record("time/total_timesteps", self.num_timesteps, exclude="tensorboard")
+        if self.use_sde:
+            self.logger.record("train/leader/std", (self.leader_model.actor.get_std()).mean().item())  # type: ignore[operator]
+            self.logger.record("train/follower/std", (self.follower_model.actor.get_std()).mean().item())  # type: ignore[operator]
+
+        if len(self.ep_success_buffer) > 0:
+            self.logger.record("rollout/success_rate", safe_mean(self.ep_success_buffer))
+        # Pass the number of timesteps for tensorboard
+        self.logger.dump(step=self.num_timesteps)
 
     def _store_transition(
             self,
@@ -526,4 +559,5 @@ class LeaderFollowerAlgorithm(BaseAlgorithm):
             **kwargs,
     ) -> SelfBaseAlgorithm:
         # TODO
+        warnings.warn("Trying to load a policy from a saved model is not supported yet.")
         raise NotImplementedError()
