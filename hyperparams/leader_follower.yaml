@@ -5,7 +5,6 @@ Minigrid: &minigrid-defaults
   follower_policy: 'CnnPolicy'
   n_timesteps: !!float 1e5
   learning_rate: 2.5e-4
-  n_steps: 128 # batch size is n_steps * n_env
   n_envs: 1 # number of environment copies running in parallel
   normalize: False
 
