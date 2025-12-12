@@ -9,6 +9,7 @@ from rl_zoo3.utils import get_callback_list
 from sb3_contrib.common.vec_env import AsyncEval
 from stable_baselines3 import HerReplayBuffer
 
+from minigrid_env.environment import LavaEnv
 from policies.LeaderFollowerAlgorithm import LeaderFollowerAlgorithm
 
 
@@ -19,6 +20,8 @@ class ExperimentManagerLF(ExperimentManager):
         del kwargs["leader_policy"]
         del kwargs["follower_algorithm"]
         del kwargs["follower_policy"]
+        del kwargs["train_leader"]
+        del kwargs["train_follower"]
         # TODO: find a better solution where kwargs are actually used in LF
 
         n_envs = 1 if self.algo == "ars" else self.n_envs
@@ -67,6 +70,9 @@ class ExperimentManagerLF(ExperimentManager):
             seed=self.seed,
             verbose=trial_verbosity,
             device=self.device,
+
+            train_leader=self._hyperparams["train_leader"],
+            train_follower=self._hyperparams["train_follower"],
         )
 
         eval_env = self.create_envs(n_envs=self.n_eval_envs, eval_env=True)
@@ -79,6 +85,8 @@ class ExperimentManagerLF(ExperimentManager):
         if self.optimization_log_path is not None:
             path = os.path.join(self.optimization_log_path, f"trial_{trial.number!s}")
         callbacks = get_callback_list({"callback": self.specified_callbacks})
+
+        # TODO: maybe join into one callback? Might not be deterministic
         eval_callback = TrialEvalCallback(
             eval_env,
             trial,
@@ -89,6 +97,17 @@ class ExperimentManagerLF(ExperimentManager):
             deterministic=self.deterministic_eval,
         )
         callbacks.append(eval_callback)
+
+        individual_rewards_eval_callback = TrialEvalCallback(
+            env,
+            trial,
+            best_model_save_path=path,
+            log_path=path,
+            n_eval_episodes=self.n_eval_episodes,
+            eval_freq=optuna_eval_freq,
+        )
+        callbacks.append(individual_rewards_eval_callback)
+
 
         learn_kwargs = {}
         # Special case for ARS
@@ -124,6 +143,11 @@ class ExperimentManagerLF(ExperimentManager):
             raise optuna.exceptions.TrialPruned() from e
         is_pruned = eval_callback.is_pruned
         reward = eval_callback.last_mean_reward
+
+        individual_rewards = individual_rewards_eval_callback.last_mean_reward
+        leader_reward, follower_reward = LavaEnv.decode_reward(individual_rewards)
+        trial.set_user_attr("leader_reward", leader_reward)
+        trial.set_user_attr("follower_reward", follower_reward)
 
         del model.env, eval_env
         del model
