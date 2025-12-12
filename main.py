@@ -53,6 +53,14 @@ def main():
     )
 
     run_name = f"{run_config["environment_id"]}__{algorithm_config["algorithm"]}__{algorithm_config["leader"]}__{algorithm_config["follower"]}__seed_{run_config["seed"]}"
+
+    # Optuna parameters
+    run_config["storage"] = os.path.join(run_config["log_folder"], run_name,  'optuna.log')
+    # reset optuna storage
+    if os.path.exists(run_config["storage"]):
+        os.remove(run_config["storage"])
+    run_config["study_name"] = run_name
+
     tags = [f"v{sb3.__version__}"]
     if TRAINING_RUN:
         run = wandb.init(
@@ -88,6 +96,8 @@ def main():
         device=run_config["device"],
         show_progress=run_config["show_progress"],
         config=run_config["hyperparameters_dir"],
+        storage=run_config["storage"],
+        study_name=run_config["study_name"],
     )
 
     # Prepare experiment and launch hyperparameter optimization if needed
