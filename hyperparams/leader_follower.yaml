@@ -7,6 +7,8 @@ Minigrid: &minigrid-defaults
   learning_rate: 2.5e-4
   n_envs: 1 # number of environment copies running in parallel
   normalize: False
+  train_leader: True
+  train_follower: True
 
 Minigrid-Lava:
   <<: *minigrid-defaults
