@@ -24,7 +24,7 @@ from stable_baselines3.common.utils import should_collect_more_steps, safe_mean
 from stable_baselines3.common.vec_env import VecEnv
 from stable_baselines3.dqn import MultiInputPolicy
 
-from minigrid_env.environment import LavaEnv
+from minigrid_env.environment import LavaEnv, FollowerAction, LeaderAction
 from policies.feature_extractors.LavaEnvFeaturesExtractor import LavaEnvCNNFeaturesExtractor
 
 SelfLeaderFollowerAlgorithm = TypeVar("SelfLeaderFollowerAlgorithm", bound="LeaderFollowerAlgorithm")
@@ -58,6 +58,10 @@ class LeaderFollowerAlgorithm(BaseAlgorithm):
             use_sde: bool = False,
             sde_sample_freq: int = -1,
             supported_action_spaces: tuple[type[spaces.Space], ...] = None,
+
+            # used to validate reward signals
+            train_leader: bool = True,
+            train_follower: bool = True,
     ):
         super().__init__(
             policy="MultiInput",  # will not be used
@@ -76,59 +80,72 @@ class LeaderFollowerAlgorithm(BaseAlgorithm):
         )
 
         self.state_split_point = 0
+        assert train_leader or train_follower, "At least one of the two algorithms must be trained"
+        self.train_leader = train_leader
+        self.train_follower = train_follower
+        seed_seq = np.random.SeedSequence(seed)
+        self._np_random = np.random.Generator(np.random.PCG64(seed_seq))
 
         if not isinstance(env.action_space, spaces.MultiDiscrete):
             raise ValueError("Leader and follower environment must use a MultiDiscrete action space")
 
         ############## Leader setup ##############
-        self.leader_algorithm_kwargs = leader_algorithm_kwargs or {}
-        if "policy_kwargs" not in self.leader_algorithm_kwargs:
-            self.leader_algorithm_kwargs["policy_kwargs"] = {}
-        self.leader_algorithm_kwargs["policy_kwargs"]["features_extractor_class"] = LavaEnvCNNFeaturesExtractor
+        if self.train_leader:
+            self.leader_algorithm_kwargs = leader_algorithm_kwargs or {}
+            if "policy_kwargs" not in self.leader_algorithm_kwargs:
+                self.leader_algorithm_kwargs["policy_kwargs"] = {}
+            self.leader_algorithm_kwargs["policy_kwargs"]["features_extractor_class"] = LavaEnvCNNFeaturesExtractor
 
-        # This won't be used anyway, but sb3 needs it
-        def make_leader_env() -> gym.Env:
-            return LavaEnv(only_leader_env=True)
+            # This won't be used anyway, but sb3 needs it
+            def make_leader_env() -> gym.Env:
+                return LavaEnv(only_leader_env=True)
 
-        leader_env = make_vec_env(
-            make_leader_env,
-            n_envs=1,
-            seed=self.seed,
-        )
+            leader_env = make_vec_env(
+                make_leader_env,
+                n_envs=1,
+                seed=self.seed,
+            )
 
-        self.leader_model = ALGOS[leader_algorithm](
-            policy=leader_policy,
-            env=leader_env,
-            tensorboard_log=os.path.join(tensorboard_log, "leader") if tensorboard_log is not None else None,
-            **self.leader_algorithm_kwargs,
-        )
+            self.leader_model = ALGOS[leader_algorithm](
+                policy=leader_policy,
+                env=leader_env,
+                tensorboard_log=os.path.join(tensorboard_log, "leader") if tensorboard_log is not None else None,
+                **self.leader_algorithm_kwargs,
+            )
+        else:
+            self.leader_model = None
 
         ############# Follower setup #############
-        self.follower_algorithm_kwargs = follower_algorithm_kwargs or {}
-        if "policy_kwargs" not in self.follower_algorithm_kwargs:
-            self.follower_algorithm_kwargs["policy_kwargs"] = {}
-        self.follower_algorithm_kwargs["policy_kwargs"]["features_extractor_class"] = LavaEnvCNNFeaturesExtractor
+        if self.train_follower:
+            self.follower_algorithm_kwargs = follower_algorithm_kwargs or {}
+            if "policy_kwargs" not in self.follower_algorithm_kwargs:
+                self.follower_algorithm_kwargs["policy_kwargs"] = {}
+            self.follower_algorithm_kwargs["policy_kwargs"]["features_extractor_class"] = LavaEnvCNNFeaturesExtractor
 
-        # This won't be used anyway, but sb3 needs it
-        def make_follower_env() -> gym.Env:
-            return LavaEnv(only_follower_env=True)
+            # This won't be used anyway, but sb3 needs it
+            def make_follower_env() -> gym.Env:
+                return LavaEnv(only_follower_env=True)
 
-        follower_env = make_vec_env(
-            make_follower_env,
-            n_envs=1,
-            seed=self.seed,
-        )
+            follower_env = make_vec_env(
+                make_follower_env,
+                n_envs=1,
+                seed=self.seed,
+            )
 
-        self.follower_model = ALGOS[follower_algorithm](
-            policy=follower_policy,
-            env=follower_env,
-            tensorboard_log=os.path.join(tensorboard_log, "follower") if tensorboard_log is not None else None,
-            **self.follower_algorithm_kwargs,
-        )
+            self.follower_model = ALGOS[follower_algorithm](
+                policy=follower_policy,
+                env=follower_env,
+                tensorboard_log=os.path.join(tensorboard_log, "follower") if tensorboard_log is not None else None,
+                **self.follower_algorithm_kwargs,
+            )
+        else:
+            self.follower_model = None
 
     def _setup_model(self) -> None:
-        self.leader_model._setup_model()
-        self.follower_model._setup_model()
+        if self.train_leader:
+            self.leader_model._setup_model()
+        if self.train_follower:
+            self.follower_model._setup_model()
 
     def learn(
             self: SelfLeaderFollowerAlgorithm,
@@ -141,21 +158,23 @@ class LeaderFollowerAlgorithm(BaseAlgorithm):
             async_eval_leader: AsyncEval = None,
             async_eval_follower: AsyncEval = None,
     ) -> SelfLeaderFollowerAlgorithm:
-        self.leader_model._setup_learn(
-            total_timesteps,
-            callback,
-            reset_num_timesteps,
-            tb_log_name,
-            progress_bar,
-        )
+        if self.train_leader:
+            self.leader_model._setup_learn(
+                total_timesteps,
+                callback,
+                reset_num_timesteps,
+                tb_log_name,
+                progress_bar,
+            )
 
-        self.follower_model._setup_learn(
-            total_timesteps,
-            callback,
-            reset_num_timesteps,
-            tb_log_name,
-            progress_bar,
-        )
+        if self.train_follower:
+            self.follower_model._setup_learn(
+                total_timesteps,
+                callback,
+                reset_num_timesteps,
+                tb_log_name,
+                progress_bar,
+            )
 
         total_timesteps, callback = self._setup_learn(
             total_timesteps,
@@ -172,29 +191,33 @@ class LeaderFollowerAlgorithm(BaseAlgorithm):
         leader_is_off_policy = False
         follower_is_off_policy = False
         train_freq = None
-        if issubclass(type(self.leader_model), OffPolicyAlgorithm):
+        if self.train_leader and issubclass(type(self.leader_model), OffPolicyAlgorithm):
             assert isinstance(self.leader_model.train_freq, TrainFreq)
             leader_is_off_policy = True
             train_freq = self.leader_model.train_freq
 
-        if issubclass(type(self.follower_model), OffPolicyAlgorithm):
+        if self.train_follower and issubclass(type(self.follower_model), OffPolicyAlgorithm):
             assert isinstance(self.follower_model.train_freq, TrainFreq)
             follower_is_off_policy = True
             train_freq = self.follower_model.train_freq
 
-        if leader_is_off_policy and follower_is_off_policy:
-            return self._learn_off_policy(
+        if (leader_is_off_policy or not self.train_leader) and (follower_is_off_policy or not self.train_follower):
+            self._learn_off_policy(
                 train_freq=train_freq,
                 callback=callback,
                 total_timesteps=total_timesteps,
                 log_interval=log_interval,
             )
-        elif not leader_is_off_policy and not follower_is_off_policy:
-            return self._learn_on_policy(
+        elif (not leader_is_off_policy or not self.train_leader) and (not follower_is_off_policy or not self.train_follower):
+            self._learn_on_policy(
                 callback,
             )
         else:
             raise ValueError("Both leader and follower must be either off-policy or on-policy")
+
+        callback.on_training_end()
+
+        return self
 
     def _learn_on_policy(
             self,
@@ -209,27 +232,29 @@ class LeaderFollowerAlgorithm(BaseAlgorithm):
             callback: BaseCallback,
             total_timesteps: int,
             log_interval: int,
-    ) -> SelfLeaderFollowerAlgorithm:
+    ) -> None:
         while self.num_timesteps < total_timesteps:
             rollout = self.collect_rollouts(
                 self.env,
                 train_freq=train_freq,
                 callback=callback,
-                learning_starts=self.leader_model.learning_starts,
+                learning_starts=self.leader_model.learning_starts if self.train_leader else self.follower_model.learning_starts,
                 log_interval=log_interval,
             )
 
             if not rollout.continue_training:
                 break
 
-            if self.num_timesteps > 0 and self.num_timesteps > self.leader_model.learning_starts:
+            if self.num_timesteps > 0 and self.num_timesteps > (self.leader_model.learning_starts if self.train_leader else self.follower_model.learning_starts):
                 # If no `gradient_steps` is specified,
                 # do as many gradients steps as steps performed during the rollout
-                gradient_steps = self.leader_model.gradient_steps if self.leader_model.gradient_steps > 0 else rollout.episode_timesteps
-                self.leader_model.train(batch_size=self.leader_model.batch_size, gradient_steps=gradient_steps)
-                self.follower_model.train(batch_size=self.leader_model.batch_size, gradient_steps=gradient_steps)
+                if self.train_leader:
+                    gradient_steps = self.leader_model.gradient_steps if self.leader_model.gradient_steps > 0 else rollout.episode_timesteps
+                    self.leader_model.train(batch_size=self.leader_model.batch_size, gradient_steps=gradient_steps)
+                if self.train_follower:
+                    gradient_steps = self.follower_model.gradient_steps if self.follower_model.gradient_steps > 0 else rollout.episode_timesteps
+                    self.follower_model.train(batch_size=self.follower_model.batch_size, gradient_steps=gradient_steps)
 
-        return self
 
     def collect_rollouts(
             self,
@@ -240,8 +265,10 @@ class LeaderFollowerAlgorithm(BaseAlgorithm):
             log_interval,
     ) -> RolloutReturn:
         # Switch to eval mode (this affects batch norm / dropout)
-        self.leader_model.policy.set_training_mode(False)
-        self.follower_model.policy.set_training_mode(False)
+        if self.train_leader:
+            self.leader_model.policy.set_training_mode(False)
+        if self.train_follower:
+            self.follower_model.policy.set_training_mode(False)
 
         num_collected_steps, num_collected_episodes = 0, 0
 
@@ -251,17 +278,23 @@ class LeaderFollowerAlgorithm(BaseAlgorithm):
         if env.num_envs > 1:
             assert train_freq.unit == TrainFrequencyUnit.STEP, "You must use only one env when doing episodic training."
 
-        if self.leader_model.use_sde:
-            self.leader_model.actor.reset_noise(env.num_envs)
-            self.follower_model.actor.reset_noise(env.num_envs)
+        if self.train_leader:
+            if self.leader_model.use_sde:
+                self.leader_model.actor.reset_noise(env.num_envs)
+        if self.train_follower:
+            if self.follower_model.use_sde:
+                self.follower_model.actor.reset_noise(env.num_envs)
 
         callback.on_rollout_start()
         continue_training = True
         while should_collect_more_steps(train_freq, num_collected_steps, num_collected_episodes):
-            if self.leader_model.use_sde and self.leader_model.sde_sample_freq > 0 and num_collected_steps % self.leader_model.sde_sample_freq == 0:
-                # Sample a new noise matrix
-                self.leader_model.actor.reset_noise(env.num_envs)
-                self.follower_model.actor.reset_noise(env.num_envs)
+            # Sample a new noise matrix
+            if self.train_leader:
+                if self.leader_model.use_sde and self.leader_model.sde_sample_freq > 0 and num_collected_steps % self.leader_model.sde_sample_freq == 0:
+                    self.leader_model.actor.reset_noise(env.num_envs)
+            if self.train_follower:
+                if self.follower_model.use_sde and self.follower_model.sde_sample_freq > 0 and num_collected_steps % self.follower_model.sde_sample_freq == 0:
+                    self.follower_model.actor.reset_noise(env.num_envs)
 
             # Select action randomly or according to policy
             ((leader_actions, leader_buffer_actions),
@@ -273,8 +306,10 @@ class LeaderFollowerAlgorithm(BaseAlgorithm):
             decoded_rewards = np.array(list(map(LavaEnv.decode_reward, encoded_rewards)), dtype=encoded_rewards.dtype)
 
             self.num_timesteps += env.num_envs
-            self.leader_model.num_timesteps = self.num_timesteps
-            self.follower_model.num_timesteps = self.num_timesteps
+            if self.train_leader:
+                self.leader_model.num_timesteps = self.num_timesteps
+            if self.train_follower:
+                self.follower_model.num_timesteps = self.num_timesteps
             num_collected_steps += 1
 
             # Give access to local variables
@@ -286,8 +321,10 @@ class LeaderFollowerAlgorithm(BaseAlgorithm):
 
             # Retrieve reward and episode length if using Monitor wrapper
             self._update_info_buffer(infos, dones)
-            self.leader_model._update_info_buffer(infos, dones)
-            self.follower_model._update_info_buffer(infos, dones)
+            if self.train_leader:
+                self.leader_model._update_info_buffer(infos, dones)
+            if self.train_follower:
+                self.follower_model._update_info_buffer(infos, dones)
 
             # Store data in replay buffer (normalized action and unnormalized observation)
             self._store_transition(
@@ -299,24 +336,31 @@ class LeaderFollowerAlgorithm(BaseAlgorithm):
             )
 
             self._update_current_progress_remaining(self.num_timesteps, self._total_timesteps)
-            self.leader_model._update_current_progress_remaining(self.num_timesteps, self._total_timesteps)
-            self.follower_model._update_current_progress_remaining(self.num_timesteps, self._total_timesteps)
+            if self.train_leader:
+                self.leader_model._update_current_progress_remaining(self.num_timesteps, self._total_timesteps)
+                self.leader_model._on_step()
+            if self.train_follower:
+                self.follower_model._update_current_progress_remaining(self.num_timesteps, self._total_timesteps)
+                self.follower_model._on_step()
 
-            self.leader_model._on_step()
-            self.follower_model._on_step()
 
             for idx, done in enumerate(dones):
                 if done:
                     # Update stats
                     num_collected_episodes += 1
                     self._episode_num += 1
-                    self.leader_model._episode_num += 1
-                    self.follower_model._episode_num += 1
+                    if self.train_leader:
+                        self.leader_model._episode_num += 1
+                    if self.train_follower:
+                        self.follower_model._episode_num += 1
 
-                    if self.leader_model.action_noise is not None:
-                        kwargs = dict(indices=[idx]) if env.num_envs == 1 else dict()
-                        self.leader_model.action_noise.reset(**kwargs)
-                        self.follower_model.action_noise.reset(**kwargs)
+                    kwargs = dict(indices=[idx]) if env.num_envs == 1 else dict()
+                    if self.train_leader:
+                        if self.leader_model.action_noise is not None:
+                            self.leader_model.action_noise.reset(**kwargs)
+                    if self.train_follower:
+                        if self.follower_model.action_noise is not None:
+                            self.follower_model.action_noise.reset(**kwargs)
 
                     # Log training infos
                     if log_interval is not None and self._episode_num % log_interval == 0:
@@ -398,23 +442,25 @@ class LeaderFollowerAlgorithm(BaseAlgorithm):
         leader_rewards = rewards_[..., 0]
         follower_rewards = rewards_[..., 1]
 
-        self.leader_model.replay_buffer.add(
-            last_obs["image"],
-            next_obs["image"],
-            leader_actions,
-            leader_rewards,
-            dones,
-            infos,
-        )
+        if self.train_leader:
+            self.leader_model.replay_buffer.add(
+                last_obs["image"],
+                next_obs["image"],
+                leader_actions,
+                leader_rewards,
+                dones,
+                infos,
+            )
 
-        self.follower_model.replay_buffer.add(
-            last_obs["follower_image"],
-            next_obs["follower_image"],
-            follower_actions,
-            follower_rewards,
-            dones,
-            infos,
-        )
+        if self.train_follower:
+            self.follower_model.replay_buffer.add(
+                last_obs["follower_image"],
+                next_obs["follower_image"],
+                follower_actions,
+                follower_rewards,
+                dones,
+                infos,
+            )
 
         self._last_obs = new_obs
         # Save the unnormalized observation
@@ -427,50 +473,71 @@ class LeaderFollowerAlgorithm(BaseAlgorithm):
             n_envs: int = 1,
     ) -> tuple[tuple[np.ndarray, np.ndarray], tuple[np.ndarray, np.ndarray]]:
         # Select action randomly or according to policy
-        if self.num_timesteps < learning_starts and not (
-                self.leader_model.use_sde and self.leader_model.use_sde_at_warmup):
-            # Warmup phase
-            unscaled_leader_action = np.array([self.leader_model.action_space.sample() for _ in range(n_envs)])
-            unscaled_follower_action = np.array([self.follower_model.action_space.sample() for _ in range(n_envs)])
+        if not self.train_leader:
+            # Sampling is taken from discrete gymnasium action space
+            unscaled_leader_action = np.array([self._sample_leader_action() for _ in range(n_envs)])
         else:
-            # Note: when using continuous actions,
-            # we assume that the policy uses tanh to scale the action
-            # We use non-deterministic action in the case of SAC, for TD3, it does not matter
-            assert self._last_obs is not None, "self._last_obs was not set"
-            unscaled_leader_action, _ = self.leader_model.predict(self._last_obs["image"], deterministic=False)
-            _last_follower_obs = LavaEnv.prepare_follower_obs(self._last_obs["follower_image"], unscaled_leader_action)
-            unscaled_follower_action, _ = self.follower_model.predict(_last_follower_obs, deterministic=False)
+            if self.num_timesteps < learning_starts and not (self.leader_model.use_sde and self.leader_model.use_sde_at_warmup):
+                # Warmup phase
+                unscaled_leader_action = np.array([self.leader_model.action_space.sample() for _ in range(n_envs)])
+            else:
+                # Note: when using continuous actions,
+                # we assume that the policy uses tanh to scale the action
+                # We use non-deterministic action in the case of SAC, for TD3, it does not matter
+                assert self._last_obs is not None, "self._last_obs was not set"
+                unscaled_leader_action, _ = self.leader_model.predict(self._last_obs["image"], deterministic=False)
+                _last_follower_obs = LavaEnv.prepare_follower_obs(self._last_obs["follower_image"], unscaled_leader_action)
+
+        if not self.train_follower:
+            # Always obey to let the leader freely act in the environment
+            unscaled_follower_action = np.array([FollowerAction.obey for _ in range(n_envs)])
+        else:
+            if self.num_timesteps < learning_starts and not (self.follower_model.use_sde and self.follower_model.use_sde_at_warmup):
+                # Warmup phase
+                unscaled_follower_action = np.array([self.follower_model.action_space.sample() for _ in range(n_envs)])
+            else:
+                # Note: when using continuous actions,
+                # we assume that the policy uses tanh to scale the action
+                # We use non-deterministic action in the case of SAC, for TD3, it does not matter
+                assert self._last_obs is not None, "self._last_obs was not set"
+                _last_follower_obs = LavaEnv.prepare_follower_obs(self._last_obs["follower_image"], unscaled_leader_action)
+                unscaled_follower_action, _ = self.follower_model.predict(_last_follower_obs, deterministic=False)
+
 
         # Rescale the action from [low, high] to [-1, 1]
-        if isinstance(self.leader_model.action_space, spaces.Box):
-            scaled_leader_action = self.leader_model.policy.scale_action(unscaled_leader_action)
+        leader_buffer_action = unscaled_leader_action
+        leader_action = leader_buffer_action
+        if self.train_leader:
+            if isinstance(self.leader_model.action_space, spaces.Box):
+                scaled_leader_action = self.leader_model.policy.scale_action(unscaled_leader_action)
 
-            # Add noise to the action (improve exploration)
-            if self.leader_model.action_noise is not None:
-                scaled_leader_action = np.clip(scaled_leader_action + self.leader_model.action_noise(), -1, 1)
+                # Add noise to the action (improve exploration)
+                if self.leader_model.action_noise is not None:
+                    scaled_leader_action = np.clip(scaled_leader_action + self.leader_model.action_noise(), -1, 1)
 
-            # We store the scaled action in the buffer
-            leader_buffer_action = scaled_leader_action
-            leader_action = self.leader_model.policy.unscale_action(scaled_leader_action)
-        else:
-            leader_buffer_action = unscaled_leader_action
-            leader_action = leader_buffer_action
+                # We store the scaled action in the buffer
+                leader_buffer_action = scaled_leader_action
+                leader_action = self.leader_model.policy.unscale_action(scaled_leader_action)
 
-        if isinstance(self.follower_model.action_space, spaces.Box):
-            scaled_follower_action = self.follower_model.policy.scale_action(unscaled_follower_action)
+        # Discrete case, no need to normalize or clip
+        follower_buffer_action = unscaled_follower_action
+        follower_action = follower_buffer_action
+        if self.train_follower:
+            if isinstance(self.follower_model.action_space, spaces.Box):
+                scaled_follower_action = self.follower_model.policy.scale_action(unscaled_follower_action)
 
-            # Add noise to the action (improve exploration)
-            if self.follower_model.action_noise is not None:
-                scaled_follower_action = np.clip(scaled_follower_action + self.follower_model.action_noise(), -1, 1)
+                # Add noise to the action (improve exploration)
+                if self.follower_model.action_noise is not None:
+                    scaled_follower_action = np.clip(scaled_follower_action + self.follower_model.action_noise(), -1, 1)
 
-            # We store the scaled action in the buffer
-            follower_buffer_action = scaled_follower_action
-            follower_action = self.follower_model.policy.unscale_action(scaled_follower_action)
-        else:
-            # Discrete case, no need to normalize or clip
-            follower_buffer_action = unscaled_follower_action
-            follower_action = follower_buffer_action
+                # We store the scaled action in the buffer
+                follower_buffer_action = scaled_follower_action
+                follower_action = self.follower_model.policy.unscale_action(scaled_follower_action)
         return (leader_action, leader_buffer_action), (follower_action, follower_buffer_action)
+
+    def _sample_leader_action(self) -> int:
+        # Make it more likely that the leader moves initially
+        return self._np_random.choice(max(LeaderAction), p=[.25, .25, .5])
 
     def predict(
             self,
@@ -481,12 +548,20 @@ class LeaderFollowerAlgorithm(BaseAlgorithm):
     ) -> tuple[np.ndarray, tuple[np.ndarray, ...] | None]:
         leader_state, follower_state = self.get_model_states(state)
 
-        leader_action, leader_state = self.leader_model.predict(observation["image"], leader_state, episode_start,
-                                                                deterministic)
+        if self.train_leader:
+            leader_action, leader_state = self.leader_model.predict(observation["image"], leader_state, episode_start,
+                                                                    deterministic)
+        else:
+            leader_action = np.array([self._sample_leader_action()])
+            leader_state = None
 
-        follower_obs = LavaEnv.prepare_follower_obs(observation["follower_image"], leader_action)
-        follower_action, follower_state = self.follower_model.predict(follower_obs, follower_state, episode_start,
-                                                                      deterministic)
+        if self.train_follower:
+            follower_obs = LavaEnv.prepare_follower_obs(observation["follower_image"], leader_action)
+            follower_action, follower_state = self.follower_model.predict(follower_obs, follower_state, episode_start,
+                                                                          deterministic)
+        else:
+            follower_action = np.array([FollowerAction.obey])
+            follower_state = None
 
         action = np.stack((leader_action, follower_action), axis=-1)
 
@@ -545,8 +620,10 @@ class LeaderFollowerAlgorithm(BaseAlgorithm):
             exclude: Optional[Iterable[str]] = None,
             include: Optional[Iterable[str]] = None,
     ) -> None:
-        self.leader_model.save(os.path.join(path, 'leader'), exclude, include)
-        self.follower_model.save(os.path.join(path, 'follower'), exclude, include)
+        if self.train_leader:
+            self.leader_model.save(os.path.join(path, 'leader'), exclude, include)
+        if self.train_follower:
+            self.follower_model.save(os.path.join(path, 'follower'), exclude, include)
 
     def load(  # noqa: C901
             cls: type[SelfBaseAlgorithm],
