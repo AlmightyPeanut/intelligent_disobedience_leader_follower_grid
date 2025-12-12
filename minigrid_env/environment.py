@@ -23,13 +23,13 @@ class Actions(IntEnum):
     pickup = 3  # represents the null action if the control says it is dangerous
 
 
-class LeaderActions(IntEnum):
+class LeaderAction(IntEnum):
     left = 0
     right = 1
     forward = 2
 
 
-class FollowerActions(IntEnum):
+class FollowerAction(IntEnum):
     obey = 0
     disobey = 1
 
@@ -188,10 +188,7 @@ class LavaEnv(MiniGridEnv):
     ) -> tuple[ObsType, SupportsFloat, bool, bool, dict[str, Any]]:
         combined_action = self.combine_actions(action)
         next_obs, leader_reward, terminated, truncated, info = super().step(combined_action)
-
-        # if the agent stepped into lava, the reward for the follower is -1
-        follower_reward = -1. if isinstance(self.grid.get(*self.agent_pos), Lava) else 1.
-        # TODO: test if correct rewards are given for each actor
+        follower_reward = self.get_follower_reward(action[0], action[1])
 
         if self.is_eval_env:
             reward = float(leader_reward) if follower_reward >= .0 else -1.
@@ -202,15 +199,34 @@ class LavaEnv(MiniGridEnv):
 
         return next_obs, reward, terminated, truncated, info
 
+    def get_follower_reward(self, leader_action: LeaderAction, follower_action: FollowerAction) -> float:
+        reward = .0
+        if follower_action == FollowerAction.obey:
+            if isinstance(self.grid.get(*self.agent_pos), Lava):
+                # Did not prevent the leader from stepping into lava
+                reward = -1.
+        elif follower_action == FollowerAction.disobey:
+            if leader_action != LeaderAction.forward:
+                # Turning is always a safe action
+                reward = -1.
+            else:
+                if not isinstance(self.grid.get(*self.front_pos), Lava):
+                    # Prevented the leader from doing a safe step forward
+                    reward = -1.
+                else:
+                    # Successfully prevented the leader from stepping into lava
+                    reward = 1.
+        return reward
+
     @staticmethod
     def combine_actions(
             action: np.ndarray,
     ):
-        combined_action = np.where(action[1] == FollowerActions.obey, action[0], Actions.pickup)
+        combined_action = np.where(action[1] == FollowerAction.obey, action[0], Actions.pickup)
         return combined_action.reshape((1,))
 
     def _reward(self) -> float:
-        # TODO: give a discounted reward and change the encoding accordingly
+        # TODO: give a discounted reward
         return 1.0
 
     @classmethod
@@ -300,10 +316,10 @@ class LavaEnv(MiniGridEnv):
     def prepare_follower_obs(obs: np.ndarray, leader_actions: np.ndarray):
         # Overwrites the action in the observation
         if obs.ndim == 3:
-            obs[-len(LeaderActions):, ...] = 0
+            obs[-len(LeaderAction):, ...] = 0
             obs[:, leader_actions, ...] = 1
         elif obs.ndim == 4:
-            obs[:, -len(LeaderActions):, ...] = 0
+            obs[:, -len(LeaderAction):, ...] = 0
             obs[:, leader_actions, ...] = 1
         else:
             raise ValueError(f"obs has invalid number of dimensions: {obs.shape}. Should be 3 or 4")
