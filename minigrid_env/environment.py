@@ -103,7 +103,7 @@ class LavaEnv(MiniGridEnv):
         assert isinstance(self.observation_space, spaces.Dict)
         follower_observation_space = spaces.Box(
             0, 255,
-            (grid_size, grid_size, len(LeaderActions) + self.observation_space.spaces["image"].shape[-1]),
+            (grid_size, grid_size, len(LeaderAction) + self.observation_space.spaces["image"].shape[-1]),
             dtype=np.float32)
         self.observation_space.spaces["follower_image"] = follower_observation_space
 
@@ -122,7 +122,7 @@ class LavaEnv(MiniGridEnv):
                 (
                     self.observation_space.spaces["image"].shape[0],
                     self.observation_space.spaces["image"].shape[1],
-                    len(LeaderActions) + len(OBJECT_TO_IDX),
+                    len(LeaderAction) + len(OBJECT_TO_IDX),
                 )
             )
 
@@ -147,9 +147,9 @@ class LavaEnv(MiniGridEnv):
 
 
 
-        self.leader_actions = LeaderActions
+        self.leader_actions = LeaderAction
         self.leader_action_space = spaces.Discrete(len(self.leader_actions))
-        self.follower_actions = FollowerActions
+        self.follower_actions = FollowerAction
         self.follower_action_space = spaces.Discrete(len(self.follower_actions))
         self.action_space = spaces.MultiDiscrete([len(self.leader_actions), len(self.follower_actions)])
 
