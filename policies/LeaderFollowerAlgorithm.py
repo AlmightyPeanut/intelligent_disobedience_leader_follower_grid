@@ -537,7 +537,7 @@ class LeaderFollowerAlgorithm(BaseAlgorithm):
 
     def _sample_leader_action(self) -> int:
         # Make it more likely that the leader moves initially
-        return self._np_random.choice(max(LeaderAction), p=[.25, .25, .5])
+        return self._np_random.choice(len(LeaderAction), p=[.25, .25, .5])
 
     def predict(
             self,
