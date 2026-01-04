@@ -14,7 +14,6 @@ from rl_zoo3.utils import get_callback_list
 from sb3_contrib.common.vec_env import AsyncEval
 from stable_baselines3 import HerReplayBuffer
 
-from minigrid_env.environment import LavaEnv
 from dummy_vec_env import DummyVecEnvIntRewards
 from minigrid_env.environment import LavaEnv, LeaderAction, FollowerAction
 from policies.LeaderFollowerAlgorithm import LeaderFollowerAlgorithm
