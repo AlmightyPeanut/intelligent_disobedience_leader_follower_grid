@@ -10,9 +10,10 @@ import yaml
 from rl_zoo3.callbacks import TrialEvalCallback
 from rl_zoo3.exp_manager import ExperimentManager
 from rl_zoo3.hyperparams_opt import HYPERPARAMS_SAMPLER
-from rl_zoo3.utils import get_callback_list
+from rl_zoo3.utils import get_callback_list, ALGOS
 from sb3_contrib.common.vec_env import AsyncEval
 from stable_baselines3 import HerReplayBuffer
+from stable_baselines3.common.base_class import BaseAlgorithm
 
 from dummy_vec_env import DummyVecEnvIntRewards
 from minigrid_env.environment import LavaEnv, LeaderAction, FollowerAction
@@ -139,6 +140,47 @@ class ExperimentManagerLF(ExperimentManager):
             raise optuna.exceptions.TrialPruned()
 
         return reward
+
+    def setup_experiment(self) -> tuple[BaseAlgorithm, dict[str, Any]] | None:
+        """
+        Read hyperparameters, pre-process them (create schedules, wrappers, callbacks, action noise objects)
+        create the environment and possibly the model.
+
+        :return: the initialized RL model
+        """
+        unprocessed_hyperparams, saved_hyperparams = self.read_hyperparameters()
+        hyperparams, self.env_wrapper, self.callbacks, self.vec_env_wrapper = self._preprocess_hyperparams(
+            unprocessed_hyperparams
+        )
+
+        self.create_log_folder()
+        self.create_callbacks()
+
+        # Create env to have access to action space for action noise
+        n_envs = 1 if self.algo == "ars" or self.optimize_hyperparameters else self.n_envs
+        env = self.create_envs(n_envs, no_log=False)
+
+        hyperparams = self._preprocess_action_noise(hyperparams, saved_hyperparams, env)
+        self._hyperparams = self._split_hyperparams_for_leader_follower(hyperparams)
+
+        if self.continue_training:
+            model = self._load_pretrained_agent(self._hyperparams, env)
+        elif self.optimize_hyperparameters:
+            env.close()
+            return None
+        else:
+            # Train an agent from scratch
+            model = ALGOS[self.algo](
+                env=env,
+                tensorboard_log=self.tensorboard_log,
+                seed=self.seed,
+                verbose=self.verbose,
+                device=self.device,
+                **self._hyperparams,
+            )
+
+        self._save_config(saved_hyperparams)
+        return model, saved_hyperparams
 
     def _split_hyperparams_for_leader_follower(self, hyperparams: dict[str, Any]) -> dict[str, Any]:
         policy_params = {k: v for k, v in hyperparams.items() if k not in [
