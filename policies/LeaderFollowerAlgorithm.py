@@ -68,7 +68,7 @@ class LeaderFollowerAlgorithm(BaseAlgorithm):
             env=env,
             learning_rate=learning_rate,
             stats_window_size=stats_window_size,
-            tensorboard_log=None,
+            tensorboard_log=os.path.join(tensorboard_log, "common") if tensorboard_log is not None else None,
             verbose=verbose,
             device=device,
             support_multi_env=support_multi_env,
@@ -79,6 +79,8 @@ class LeaderFollowerAlgorithm(BaseAlgorithm):
             supported_action_spaces=supported_action_spaces,
         )
 
+        self.follower_is_off_policy = False
+        self.leader_is_off_policy = False
         self.state_split_point = 0
         assert train_leader or train_follower, "At least one of the two algorithms must be trained"
         self.train_leader = train_leader
@@ -159,7 +161,7 @@ class LeaderFollowerAlgorithm(BaseAlgorithm):
             async_eval_follower: AsyncEval = None,
     ) -> SelfLeaderFollowerAlgorithm:
         if self.train_leader:
-            self.leader_model._setup_learn(
+            _, callback = self.leader_model._setup_learn(
                 total_timesteps,
                 callback,
                 reset_num_timesteps,
@@ -168,7 +170,7 @@ class LeaderFollowerAlgorithm(BaseAlgorithm):
             )
 
         if self.train_follower:
-            self.follower_model._setup_learn(
+            _, callback = self.follower_model._setup_learn(
                 total_timesteps,
                 callback,
                 reset_num_timesteps,
@@ -188,27 +190,25 @@ class LeaderFollowerAlgorithm(BaseAlgorithm):
 
         assert self.env is not None, "You must set the environment before calling learn()"
 
-        leader_is_off_policy = False
-        follower_is_off_policy = False
         train_freq = None
         if self.train_leader and issubclass(type(self.leader_model), OffPolicyAlgorithm):
             assert isinstance(self.leader_model.train_freq, TrainFreq)
-            leader_is_off_policy = True
+            self.leader_is_off_policy = True
             train_freq = self.leader_model.train_freq
 
         if self.train_follower and issubclass(type(self.follower_model), OffPolicyAlgorithm):
             assert isinstance(self.follower_model.train_freq, TrainFreq)
-            follower_is_off_policy = True
+            self.follower_is_off_policy = True
             train_freq = self.follower_model.train_freq
 
-        if (leader_is_off_policy or not self.train_leader) and (follower_is_off_policy or not self.train_follower):
+        if (self.leader_is_off_policy or not self.train_leader) and (self.follower_is_off_policy or not self.train_follower):
             self._learn_off_policy(
                 train_freq=train_freq,
                 callback=callback,
                 total_timesteps=total_timesteps,
                 log_interval=log_interval,
             )
-        elif (not leader_is_off_policy or not self.train_leader) and (not follower_is_off_policy or not self.train_follower):
+        elif (not self.leader_is_off_policy or not self.train_leader) and (not self.follower_is_off_policy or not self.train_follower):
             self._learn_on_policy(
                 callback,
             )
@@ -384,20 +384,39 @@ class LeaderFollowerAlgorithm(BaseAlgorithm):
             decoded_rewards = np.array([LavaEnv.decode_reward(ep_info["r"]) for ep_info in self.ep_info_buffer])
             leader_rewards = decoded_rewards[..., 0]
             follower_rewards = decoded_rewards[..., 1]
-            self.logger.record("rollout/leader/ep_rew_mean", safe_mean(leader_rewards))
-            self.logger.record("rollout/follower/ep_rew_mean", safe_mean(follower_rewards))
+            if self.train_leader:
+                self.logger.record("rollout/leader/ep_rew_mean", safe_mean(leader_rewards))
+            if self.train_follower:
+                self.logger.record("rollout/follower/ep_rew_mean", safe_mean(follower_rewards))
+                self.logger.record("rollout/follower/good_disobedience", np.sum(follower_rewards > 0))
+                self.logger.record("rollout/follower/good_disobedience_pct", np.mean(follower_rewards > 0))
+                self.logger.record("rollout/follower/bad_disobedience", np.sum(follower_rewards < 0))
+                self.logger.record("rollout/follower/bad_disobedience_pct", np.mean(follower_rewards < 0))
             self.logger.record("rollout/ep_len_mean", safe_mean([ep_info["l"] for ep_info in self.ep_info_buffer]))
         self.logger.record("time/fps", fps)
         self.logger.record("time/time_elapsed", int(time_elapsed), exclude="tensorboard")
         self.logger.record("time/total_timesteps", self.num_timesteps, exclude="tensorboard")
         if self.use_sde:
-            self.logger.record("train/leader/std", (self.leader_model.actor.get_std()).mean().item())  # type: ignore[operator]
-            self.logger.record("train/follower/std", (self.follower_model.actor.get_std()).mean().item())  # type: ignore[operator]
+            if self.train_leader:
+                self.logger.record("train/leader/std", (self.leader_model.actor.get_std()).mean().item())  # type: ignore[operator]
+            if self.train_follower:
+                self.logger.record("train/follower/std", (self.follower_model.actor.get_std()).mean().item())  # type: ignore[operator]
 
         if len(self.ep_success_buffer) > 0:
             self.logger.record("rollout/success_rate", safe_mean(self.ep_success_buffer))
         # Pass the number of timesteps for tensorboard
         self.logger.dump(step=self.num_timesteps)
+        if self.train_leader:
+            if self.leader_is_off_policy:
+                self.leader_model.dump_logs()
+            else:
+                self.leader_model.dump_logs(iteration=self.num_timesteps)
+        if self.train_follower:
+            if self.follower_is_off_policy:
+                self.follower_model.dump_logs()
+            else:
+                self.follower_model.dump_logs(iteration=self.num_timesteps)
+
 
     def _store_transition(
             self,
