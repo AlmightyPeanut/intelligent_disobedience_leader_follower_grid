@@ -10,10 +10,13 @@ from sb3_contrib.common.vec_env import AsyncEval
 from stable_baselines3 import HerReplayBuffer
 
 from minigrid_env.environment import LavaEnv
+from dummy_vec_env import DummyVecEnvIntRewards
 from policies.LeaderFollowerAlgorithm import LeaderFollowerAlgorithm
 
 
 class ExperimentManagerLF(ExperimentManager):
+    default_vec_env_cls = DummyVecEnvIntRewards
+
     def objective(self, trial: optuna.Trial) -> float:
         kwargs = self._hyperparams.copy()
         del kwargs["leader_algorithm"]
