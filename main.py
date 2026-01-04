@@ -1,16 +1,17 @@
 import argparse
 import os.path
-import time
 
 import gymnasium as gym
 import stable_baselines3 as sb3
 import wandb
 from rl_zoo3 import ALGOS
+from rl_zoo3.hyperparams_opt import HYPERPARAMS_CONVERTER, convert_onpolicy_params, convert_offpolicy_params
 
 from experiment_manager import ExperimentManagerLF
 from policies.LeaderFollowerAlgorithm import LeaderFollowerAlgorithm
 
 TRAINING_RUN = False
+TRAINING_STEPS = 50_000
 
 algorithm_config = {
     "algorithm": "leader_follower",
@@ -27,12 +28,12 @@ run_config = {
     "wandb_project_name": "Intelligent disobedience - leader-follower-grid",
 
     "log_folder": "./logs",
-    "min_timesteps": 50_000,
-    "save_frequency": 10_000,
     "tensorboard_log_folder": "./runs",
+    "min_learn_timesteps": TRAINING_STEPS if TRAINING_RUN else TRAINING_STEPS // 10,
+    "save_frequency": TRAINING_STEPS // 5 if TRAINING_RUN else TRAINING_STEPS // 50,
     "env_kwargs": {},
     "eval_env_kwargs": {"return_summed_reward": True},
-    "n_trials": 500,
+    "n_trials": 100,
     "n_parallel_jobs": 1,
     "n_startup_trials": 10,
     "truncate_last_trajectory": True,
@@ -44,6 +45,9 @@ run_config = {
 
 
 def main():
+    if algorithm_config["leader"] == "ars" or algorithm_config["follower"] == "ars":
+        raise ValueError("ARS algorithm is not supported.")
+
     gym.register(
         run_config["environment_id"],
         "minigrid_env.environment:LavaEnv",
@@ -52,12 +56,12 @@ def main():
         run_config["environment_max_steps"],
     )
 
-    run_name = f"{run_config["environment_id"]}__{algorithm_config["algorithm"]}__{algorithm_config["leader"]}__{algorithm_config["follower"]}__seed_{run_config["seed"]}"
+    run_name = f"{run_config["environment_id"]}__{algorithm_config["algorithm"]}__leader__{algorithm_config["leader"]}__follower__{algorithm_config["follower"]}__seed_{run_config["seed"]}"
 
     # Optuna parameters
-    run_config["storage"] = os.path.join(run_config["log_folder"], run_name,  'optuna.log')
+    run_config["storage"] = os.path.abspath(os.path.join(run_config["log_folder"], run_name, "optuna.log"))
     # reset optuna storage
-    if os.path.exists(run_config["storage"]):
+    if not TRAINING_RUN and os.path.exists(run_config["storage"]):
         os.remove(run_config["storage"])
     run_config["study_name"] = run_name
 
@@ -68,10 +72,9 @@ def main():
             project=run_config["wandb_project_name"],
             tags=tags,
             config=algorithm_config,
-            # sync_tensorboard=True,  # auto-upload sb3's tensorboard metrics
+            sync_tensorboard=True,  # auto-upload sb3's tensorboard metrics
             monitor_gym=True,  # auto-upload the videos of agents playing the game
         )
-        wandb.tensorboard.patch(root_logdir=run_config["tensorboard_log_folder"])
 
     ALGOS["leader_follower"] = LeaderFollowerAlgorithm
     HYPERPARAMS_CONVERTER["leader_follower"] = convert_onpolicy_params if algorithm_config["leader"] in [
@@ -86,7 +89,7 @@ def main():
         algo=algorithm_config["algorithm"],
         env_id=run_config["environment_id"],
         log_folder=run_config["log_folder"],
-        tensorboard_log=f"{run_config["tensorboard_log_folder"]}/{run_name}",
+        tensorboard_log=f"{run_config["tensorboard_log_folder"]}/{run_name}" if TRAINING_RUN else "",
         n_timesteps=run_config["min_learn_timesteps"],
         save_freq=run_config["save_frequency"],
         env_kwargs=run_config["env_kwargs"],
