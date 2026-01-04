@@ -1,7 +1,12 @@
+import importlib
 import os
+from collections import OrderedDict
+from pathlib import Path
 from pprint import pprint
+from typing import Any
 
 import optuna
+import yaml
 from rl_zoo3.callbacks import TrialEvalCallback
 from rl_zoo3.exp_manager import ExperimentManager
 from rl_zoo3.hyperparams_opt import HYPERPARAMS_SAMPLER
@@ -11,6 +16,7 @@ from stable_baselines3 import HerReplayBuffer
 
 from minigrid_env.environment import LavaEnv
 from dummy_vec_env import DummyVecEnvIntRewards
+from minigrid_env.environment import LavaEnv, LeaderAction, FollowerAction
 from policies.LeaderFollowerAlgorithm import LeaderFollowerAlgorithm
 
 
@@ -19,16 +25,8 @@ class ExperimentManagerLF(ExperimentManager):
 
     def objective(self, trial: optuna.Trial) -> float:
         kwargs = self._hyperparams.copy()
-        del kwargs["leader_algorithm"]
-        del kwargs["leader_policy"]
-        del kwargs["follower_algorithm"]
-        del kwargs["follower_policy"]
-        del kwargs["train_leader"]
-        del kwargs["train_follower"]
-        # TODO: find a better solution where kwargs are actually used in LF
 
         n_envs = 1 if self.algo == "ars" else self.n_envs
-
 
         additional_args = {
             "using_her_replay_buffer": kwargs.get("replay_buffer_class") == HerReplayBuffer,
@@ -36,18 +34,11 @@ class ExperimentManagerLF(ExperimentManager):
         }
         # Pass n_actions to initialize DDPG/TD3 noise sampler
         # Sample candidate hyperparameters
-        hyperparams_leader = kwargs.copy()
-        sampled_hyperparams_leader = HYPERPARAMS_SAMPLER[self._hyperparams["leader_algorithm"]](trial, self.n_actions, n_envs, additional_args)
-        hyperparams_leader.update(sampled_hyperparams_leader)
-        if "policy_kwargs" in kwargs:
-            hyperparams_leader["policy_kwargs"] = hyperparams_leader["policy_kwargs"] | kwargs["policy_kwargs"]
+        sampled_hyperparams_leader = HYPERPARAMS_SAMPLER[self._hyperparams["leader_algorithm"]](trial, len(LeaderAction), n_envs, additional_args)
+        kwargs["leader_algorithm_kwargs"].update(sampled_hyperparams_leader)
 
-        hyperparams_follower = kwargs.copy()
-        # TODO: make the follower actions a variable?
-        sampled_hyperparams_follower = HYPERPARAMS_SAMPLER[self._hyperparams["leader_algorithm"]](trial, 2, n_envs, additional_args)
-        hyperparams_follower.update(sampled_hyperparams_follower)
-        if "policy_kwargs" in kwargs:
-            hyperparams_follower["policy_kwargs"] = hyperparams_follower["policy_kwargs"] | kwargs["policy_kwargs"]
+        sampled_hyperparams_follower = HYPERPARAMS_SAMPLER[self._hyperparams["leader_algorithm"]](trial, len(FollowerAction), n_envs, additional_args)
+        kwargs["follower_algorithm_kwargs"].update(sampled_hyperparams_follower)
 
         env = self.create_envs(n_envs, no_log=True)
 
@@ -60,22 +51,12 @@ class ExperimentManagerLF(ExperimentManager):
             trial_verbosity = self.verbose
 
         model = LeaderFollowerAlgorithm(
-            leader_algorithm=self._hyperparams["leader_algorithm"],
-            leader_policy=self._hyperparams["leader_policy"],
-            follower_algorithm=self._hyperparams["follower_algorithm"],
-            follower_policy=self._hyperparams["follower_policy"],
-            learning_rate=sampled_hyperparams_leader["learning_rate"],
             env=env,
-            leader_algorithm_kwargs=hyperparams_leader,
-            follower_algorithm_kwargs=hyperparams_follower,
-
             tensorboard_log=self.tensorboard_log,
             seed=self.seed,
             verbose=trial_verbosity,
             device=self.device,
-
-            train_leader=self._hyperparams["train_leader"],
-            train_follower=self._hyperparams["train_follower"],
+            **kwargs,
         )
 
         eval_env = self.create_envs(n_envs=self.n_eval_envs, eval_env=True)
@@ -159,3 +140,62 @@ class ExperimentManagerLF(ExperimentManager):
             raise optuna.exceptions.TrialPruned()
 
         return reward
+
+    def _split_hyperparams_for_leader_follower(self, hyperparams: dict[str, Any]) -> dict[str, Any]:
+        policy_params = {k: v for k, v in hyperparams.items() if k not in [
+            "leader_policy",
+            "leader_algorithm",
+            "follower_policy",
+            "follower_algorithm",
+            "learning_rate",
+            "train_leader",
+            "train_follower",
+        ]}
+
+        hyperparams = {k: v for k, v in hyperparams.items() if k not in policy_params.keys()}
+        hyperparams["leader_algorithm_kwargs"] = policy_params.copy()
+        hyperparams["follower_algorithm_kwargs"] = policy_params.copy()
+
+        return hyperparams
+
+
+    def read_hyperparameters(self) -> tuple[dict[str, Any], dict[str, Any]]:
+        print(f"Loading hyperparameters from: {self.config}")
+
+        if self.config.endswith(".yml") or self.config.endswith(".yaml"):
+            # Load hyperparameters from yaml file
+            with open(self.config) as f:
+                hyperparams_dict = yaml.safe_load(f)
+        elif self.config.endswith(".py"):
+            global_variables: dict = {}
+            # Load hyperparameters from python file
+            exec(Path(self.config).read_text(), global_variables)
+            hyperparams_dict = global_variables["hyperparams"]
+        else:
+            # Load hyperparameters from python package
+            hyperparams_dict = importlib.import_module(self.config).hyperparams
+            # raise ValueError(f"Unsupported config file format: {self.config}")
+
+        if self.env_name.gym_id in list(hyperparams_dict.keys()):
+            hyperparams = hyperparams_dict[self.env_name.gym_id]
+        elif self._is_atari:
+            hyperparams = hyperparams_dict["atari"]
+        else:
+            raise ValueError(f"Hyperparameters not found for {self.algo}-{self.env_name.gym_id} in {self.config}")
+
+        if self.storage and self.study_name and not self.optimize_hyperparameters:
+            print("Loading from Optuna study...")
+            study_hyperparams = self.load_trial(self.storage, self.study_name, self.trial_id)
+            hyperparams.update(study_hyperparams)
+
+        if self.custom_hyperparams is not None:
+            # Overwrite hyperparams if needed
+            hyperparams.update(self.custom_hyperparams)
+        # Sort hyperparams that will be saved
+        saved_hyperparams = OrderedDict([(key, hyperparams[key]) for key in sorted(hyperparams.keys())])
+
+        # Always print used hyperparameters
+        print("Default hyperparameters for environment (ones being tuned will be overridden):")
+        pprint(saved_hyperparams)
+
+        return hyperparams, saved_hyperparams

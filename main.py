@@ -74,6 +74,12 @@ def main():
         wandb.tensorboard.patch(root_logdir=run_config["tensorboard_log_folder"])
 
     ALGOS["leader_follower"] = LeaderFollowerAlgorithm
+    HYPERPARAMS_CONVERTER["leader_follower"] = convert_onpolicy_params if algorithm_config["leader"] in [
+        "a2c",
+        "ppo",
+        "ppo_lstm",
+        "trpo",
+        ] else convert_offpolicy_params
 
     exp_manager = ExperimentManagerLF(
         args=argparse.Namespace(**algorithm_config, **run_config),
