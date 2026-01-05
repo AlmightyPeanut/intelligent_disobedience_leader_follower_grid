@@ -105,7 +105,7 @@ class LeaderFollowerAlgorithm(BaseAlgorithm):
 
             leader_env = make_vec_env(
                 make_leader_env,
-                n_envs=1,
+                n_envs=self.n_envs,
                 seed=self.seed,
                 vec_env_cls=DummyVecEnvIntRewards,
             )
@@ -132,7 +132,7 @@ class LeaderFollowerAlgorithm(BaseAlgorithm):
 
             follower_env = make_vec_env(
                 make_follower_env,
-                n_envs=1,
+                n_envs=self.n_envs,
                 seed=self.seed,
                 vec_env_cls=DummyVecEnvIntRewards,
             )
@@ -574,7 +574,7 @@ class LeaderFollowerAlgorithm(BaseAlgorithm):
             leader_action, leader_state = self.leader_model.predict(observation["image"], leader_state, episode_start,
                                                                     deterministic)
         else:
-            leader_action = np.array([self._sample_leader_action()])
+            leader_action = np.array([self._sample_leader_action() for _ in range(observation["image"].shape[0])])
             leader_state = None
 
         if self.train_follower:
@@ -582,7 +582,7 @@ class LeaderFollowerAlgorithm(BaseAlgorithm):
             follower_action, follower_state = self.follower_model.predict(follower_obs, follower_state, episode_start,
                                                                           deterministic)
         else:
-            follower_action = np.array([FollowerAction.obey])
+            follower_action = np.array([FollowerAction.obey for _ in range(observation["follower_image"].shape[0])])
             follower_state = None
 
         action = np.stack((leader_action, follower_action), axis=-1)
