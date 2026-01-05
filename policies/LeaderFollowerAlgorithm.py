@@ -24,6 +24,7 @@ from stable_baselines3.common.utils import should_collect_more_steps, safe_mean
 from stable_baselines3.common.vec_env import VecEnv
 from stable_baselines3.dqn import MultiInputPolicy
 
+from dummy_vec_env import DummyVecEnvIntRewards
 from minigrid_env.environment import LavaEnv, FollowerAction, LeaderAction
 from policies.feature_extractors.LavaEnvFeaturesExtractor import LavaEnvCNNFeaturesExtractor
 
@@ -106,6 +107,7 @@ class LeaderFollowerAlgorithm(BaseAlgorithm):
                 make_leader_env,
                 n_envs=1,
                 seed=self.seed,
+                vec_env_cls=DummyVecEnvIntRewards,
             )
 
             self.leader_model = ALGOS[leader_algorithm](
@@ -132,6 +134,7 @@ class LeaderFollowerAlgorithm(BaseAlgorithm):
                 make_follower_env,
                 n_envs=1,
                 seed=self.seed,
+                vec_env_cls=DummyVecEnvIntRewards,
             )
 
             self.follower_model = ALGOS[follower_algorithm](
