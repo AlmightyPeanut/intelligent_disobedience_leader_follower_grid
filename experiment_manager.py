@@ -1,3 +1,4 @@
+import copy
 import importlib
 import os
 from collections import OrderedDict
@@ -24,7 +25,7 @@ class ExperimentManagerLF(ExperimentManager):
     default_vec_env_cls = DummyVecEnvIntRewards
 
     def objective(self, trial: optuna.Trial) -> float:
-        kwargs = self._hyperparams.copy()
+        kwargs = copy.deepcopy(self._hyperparams)
 
         n_envs = 1 if self.algo == "ars" else self.n_envs
 
@@ -35,9 +36,13 @@ class ExperimentManagerLF(ExperimentManager):
         # Pass n_actions to initialize DDPG/TD3 noise sampler
         # Sample candidate hyperparameters
         sampled_hyperparams_leader = HYPERPARAMS_SAMPLER[self._hyperparams["leader_algorithm"]](trial, len(LeaderAction), n_envs, additional_args)
+        if "policy_kwargs" in kwargs:
+            kwargs["leader_algorithm_kwargs"] |= kwargs["policy_kwargs"]
         kwargs["leader_algorithm_kwargs"].update(sampled_hyperparams_leader)
 
-        sampled_hyperparams_follower = HYPERPARAMS_SAMPLER[self._hyperparams["leader_algorithm"]](trial, len(FollowerAction), n_envs, additional_args)
+        sampled_hyperparams_follower = HYPERPARAMS_SAMPLER[self._hyperparams["follower_algorithm"]](trial, len(FollowerAction), n_envs, additional_args)
+        if "policy_kwargs" in kwargs:
+            kwargs["follower_algorithm_kwargs"] |= kwargs["policy_kwargs"]
         kwargs["follower_algorithm_kwargs"].update(sampled_hyperparams_follower)
 
         env = self.create_envs(n_envs, no_log=True)
