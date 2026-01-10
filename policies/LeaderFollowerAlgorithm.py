@@ -389,12 +389,20 @@ class LeaderFollowerAlgorithm(BaseAlgorithm):
             follower_rewards = decoded_rewards[..., 1]
             if self.train_leader:
                 self.logger.record("rollout/leader/ep_rew_mean", safe_mean(leader_rewards))
+                self.logger.record("rollout/times_goal_reached", np.sum(leader_rewards == 1))
+                self.logger.record("rollout/goal_reached_pct", safe_mean(leader_rewards == 1))
+
+                self.logger.record("rollout/times_stepped_in_lava", np.sum(leader_rewards == -1))
+                self.logger.record("rollout/stepped_in_lava_pct", safe_mean(leader_rewards == -1))
+
+                self.logger.record("rollout/times_episode_ended", np.sum(leader_rewards == 1))
+                self.logger.record("rollout/episode_ended_pct", safe_mean(leader_rewards == 1))
             if self.train_follower:
                 self.logger.record("rollout/follower/ep_rew_mean", safe_mean(follower_rewards))
                 self.logger.record("rollout/follower/good_disobedience", np.sum(follower_rewards > 0))
-                self.logger.record("rollout/follower/good_disobedience_pct", np.mean(follower_rewards > 0))
+                self.logger.record("rollout/follower/good_disobedience_pct", safe_mean(follower_rewards > 0))
                 self.logger.record("rollout/follower/bad_disobedience", np.sum(follower_rewards < 0))
-                self.logger.record("rollout/follower/bad_disobedience_pct", np.mean(follower_rewards < 0))
+                self.logger.record("rollout/follower/bad_disobedience_pct", safe_mean(follower_rewards < 0))
             self.logger.record("rollout/ep_len_mean", safe_mean([ep_info["l"] for ep_info in self.ep_info_buffer]))
         self.logger.record("time/fps", fps)
         self.logger.record("time/time_elapsed", int(time_elapsed), exclude="tensorboard")
