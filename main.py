@@ -67,6 +67,7 @@ def main():
 
     tags = [f"v{sb3.__version__}"]
     if TRAINING_RUN:
+        wandb.tensorboard.patch(root_logdir=run_config["tensorboard_log_folder"])
         run = wandb.init(
             name=run_name,
             project=run_config["wandb_project_name"],
