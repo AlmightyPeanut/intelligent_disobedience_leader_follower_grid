@@ -191,7 +191,11 @@ class LavaEnv(MiniGridEnv):
         follower_reward = self.get_follower_reward(action[0], action[1])
 
         if self.is_eval_env:
-            reward = float(leader_reward) if follower_reward >= .0 else -1.
+            current_cell = self.grid.get(*self.agent_pos)
+            if current_cell is not None and current_cell.type == "lava":
+                reward = -1.
+            else:
+                reward = float(leader_reward)
         else:
             # reward needs to be encoded to be compatible with gymnasium
             reward = self.encode_reward(leader_reward, follower_reward)
