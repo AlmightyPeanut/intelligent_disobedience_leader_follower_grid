@@ -392,8 +392,8 @@ class LeaderFollowerAlgorithm(BaseAlgorithm):
                 self.logger.record("rollout/times_goal_reached", np.sum(leader_rewards == 1))
                 self.logger.record("rollout/goal_reached_pct", safe_mean(leader_rewards == 1))
 
-                self.logger.record("rollout/times_episode_ended", np.sum(leader_rewards == 1))
-                self.logger.record("rollout/episode_ended_pct", safe_mean(leader_rewards == 1))
+                self.logger.record("rollout/times_episode_ended", np.sum(leader_rewards == 0))
+                self.logger.record("rollout/episode_ended_pct", safe_mean(leader_rewards == 0))
             if self.train_follower:
                 self.logger.record("rollout/follower/ep_rew_mean", safe_mean(follower_rewards))
                 self.logger.record("rollout/follower/good_disobedience", np.sum(follower_rewards > 0))
