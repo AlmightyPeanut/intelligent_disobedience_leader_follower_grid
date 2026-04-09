@@ -1,11 +1,9 @@
 numpy==2.3.5
-pytest==9.0.2
-minigrid==3.0.0
 ray==2.53.0
 gymnasium==1.1.1
-tensorboardX==2.6.4
 torch==2.9.1
 pygame==2.6.1
-pettingzoo==1.24.3
-dm-tree==0.1.9
-imageio
+polars==1.38.1
+seaborn==0.13.2
+matplotlib==3.10.3
+tqdm==4.67.1
