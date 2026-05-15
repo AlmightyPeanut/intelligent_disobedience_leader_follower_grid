@@ -15,9 +15,8 @@ from ray.rllib.utils import override
 from ray.rllib.utils.spaces.space_utils import batch as batch_func
 
 _REPO_ROOT = Path(__file__).resolve().parent
-_ROVER_DIR = _REPO_ROOT / "rover"
-if str(_ROVER_DIR) not in sys.path:
-    sys.path.insert(0, str(_ROVER_DIR))
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
 
 from env import ProposerAction, ValidatorAction 
 

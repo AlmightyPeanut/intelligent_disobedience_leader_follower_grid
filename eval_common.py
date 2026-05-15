@@ -27,9 +27,8 @@ from ray.rllib import SampleBatch
 from ray.rllib.core.rl_module import RLModule, RLModuleSpec
 
 _REPO_ROOT = Path(__file__).resolve().parent
-_ROVER_DIR = _REPO_ROOT / "rover"
-if str(_ROVER_DIR) not in sys.path:
-    sys.path.insert(0, str(_ROVER_DIR))
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
 
 from env import GridWorldEnv  
 from rl_modules.always_approve_validator import AlwaysApproveValidatorRLM  

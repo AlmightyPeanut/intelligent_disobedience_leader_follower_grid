@@ -7,6 +7,24 @@ from ray.rllib import MultiAgentEnv
 from ray.rllib.utils.typing import MultiAgentDict
 
 
+# Small per-step penalty applied to the proposer's reward whenever the step doesn't terminate on goal or lava
+# this encourages the proposer to find the goal faster and 
+# avoid "spinning in place" behavior where it just turns without moving forward
+STEP_PENALTY = -0.03
+
+# We use reward shaping. reward = DISTANCE_SHAPING_COEFF * (prev_dist - new_dist).
+# Gives dense signal toward goal so RL algorithms can learn on larger grids where the
+# random policy never stumbles into the sparse terminal reward.
+DISTANCE_SHAPING_COEFF = 0.05
+
+# Extra penalty applied when the proposer proposes `forward` but the agent doesn't move because a wall blocked it.
+# Without this, wall-bumping costs the same as turning, giving the RL no feedback to avoid it.
+WALL_BUMP_PENALTY = -0.05
+
+# Extra penalty applied to the proposer whenever the validator rejects the proposal
+VALIDATOR_REJECT_PENALTY = -0.07
+
+
 class EnvironmentAction(IntEnum):
     NO_OP = 0
     TURN_LEFT = 1
@@ -60,6 +78,7 @@ class GridWorldEnv(MultiAgentEnv):
             record_render: bool = False,
             single_agent: bool = False,
             proposer_sees_lava: bool = False,
+            randomize_spawn: bool = False,
             seed=None,
     ):
         super().__init__()
@@ -71,6 +90,7 @@ class GridWorldEnv(MultiAgentEnv):
         self.agent_view_radius = size - 1
         self.max_steps = max_steps
         self.proposer_sees_lava = proposer_sees_lava
+        self.randomize_spawn = randomize_spawn
         self._steps = 0
         self.render = render
 
@@ -160,6 +180,23 @@ class GridWorldEnv(MultiAgentEnv):
         elif self.num_lava_tiles > 0:
             self.lava_positions = self._generate_lava_positions()
 
+        # Randomized spawn for RL training
+        # In evaluation this is disabled to reduce variance among models
+        if self.randomize_spawn:
+            lava_set = set(tuple(p) for p in self.lava_positions)
+            goal_cell = tuple(self.goal_pos.tolist())
+            candidates = [
+                (r, c)
+                for r in range(1, self._size_with_walls - 1)
+                for c in range(1, self._size_with_walls - 1)
+                if (r, c) not in lava_set and (r, c) != goal_cell
+            ]
+            idx = int(self.rng.integers(0, len(candidates)))
+            self.agent_pos = np.array(candidates[idx], dtype=np.int32)
+            self.agent_dir = int(self.rng.integers(0, 4))
+
+        self._prev_goal_dist = self._goal_distance()
+
         if self.render:
             self.render_env()
 
@@ -213,6 +250,7 @@ class GridWorldEnv(MultiAgentEnv):
         validator_reward = 0
 
         if action == EnvironmentAction.NO_OP:
+            proposer_reward += VALIDATOR_REJECT_PENALTY
             if self._proposer_action != ProposerAction.forward:
                 validator_reward = -1
             else:
@@ -238,24 +276,37 @@ class GridWorldEnv(MultiAgentEnv):
         elif action == EnvironmentAction.TURN_RIGHT:
             self.agent_dir = (self.agent_dir + 1) % 4
 
-        elif action == EnvironmentAction.MOVE_FORWARD:
+        bumped_wall = False
+        if action == EnvironmentAction.MOVE_FORWARD:
             forward_pos = self._forward_position()
 
             if self.walls[forward_pos[0], forward_pos[1]] == 0:
                 self.agent_pos = forward_pos
-
+                # reward for agent at lava (terminal)
                 if tuple(self.agent_pos) in self.lava_positions:
                     self.done = True
                     return -1
+                # reward for agent at goal (terminal)
                 elif np.array_equal(self.agent_pos, self.goal_pos):
                     self.done = True
-                    return 1
+                    return 5
+            else:
+                bumped_wall = True
         elif action == EnvironmentAction.NO_OP:
             pass
-        else:
+        elif action not in (EnvironmentAction.TURN_LEFT, EnvironmentAction.TURN_RIGHT):
             raise ValueError("Invalid action.")
 
-        return 0
+        new_dist = self._goal_distance()
+        shaping = DISTANCE_SHAPING_COEFF * (self._prev_goal_dist - new_dist)
+        self._prev_goal_dist = new_dist
+        reward = STEP_PENALTY + shaping
+        if bumped_wall:
+            reward += WALL_BUMP_PENALTY
+        return reward
+
+    def _goal_distance(self) -> int:
+        return int(abs(self.agent_pos[0] - self.goal_pos[0]) + abs(self.agent_pos[1] - self.goal_pos[1]))
 
     def step(
             self, action_dict: MultiAgentDict

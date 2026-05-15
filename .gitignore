@@ -218,3 +218,8 @@ __marimo__/
 /visualization
 /logs
 *.mp4
+videos/
+checkpoints/tune/
+checkpoints/
+*.zip
+eval_results/

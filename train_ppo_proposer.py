@@ -30,7 +30,7 @@ from ray.tune import Checkpoint, register_env
 from eval_common import set_grid
 
 _REPO_ROOT = Path(__file__).resolve().parent
-_ROVER_DIR = _REPO_ROOT / "rover"
+_ROVER_DIR = _REPO_ROOT
 if str(_ROVER_DIR) not in sys.path:
     sys.path.insert(0, str(_ROVER_DIR))
 

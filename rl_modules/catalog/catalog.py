@@ -3,6 +3,7 @@ import dataclasses
 import gymnasium as gym
 from ray.rllib.algorithms.dqn.dqn_catalog import DQNCatalog
 from ray.rllib.algorithms.ppo.ppo_catalog import PPOCatalog
+from ray.rllib.algorithms.sac.sac_catalog import SACCatalog
 from ray.rllib.core.models.catalog import Catalog
 from ray.rllib.core.models.configs import ModelConfig
 from ray.rllib.core.rl_module.default_model_config import DefaultModelConfig
@@ -51,3 +52,22 @@ class DQNCatalogWithImageActionEncoder(CatalogWithImageActionEncoder, DQNCatalog
 
 class PPOCatalogWithImageActionEncoder(CatalogWithImageActionEncoder, PPOCatalog):
     pass
+
+class SACCatalogWithImageActionEncoder(CatalogWithImageActionEncoder, SACCatalog):
+    def build_qf_encoder(self, framework: str):
+        # Discrete SAC's Q head emits one value per action
+        # the Q-encoder only needs to encode the observation. 
+        # Reuse the encoder config we built for pi
+        if not isinstance(self.observation_space, gym.spaces.Dict):
+            return SACCatalog.build_qf_encoder(self, framework)
+
+        if not isinstance(self.action_space, gym.spaces.Discrete):
+            raise ValueError(
+                "SACCatalogWithImageActionEncoder only supports Dict obs with "
+                "Discrete action spaces (continuous would need action concat)."
+            )
+
+        self.qf_encoder_config = self._get_encoder_config(
+            self.observation_space, self._model_config_dict, self.action_space
+        )
+        return self.qf_encoder_config.build(framework=framework)

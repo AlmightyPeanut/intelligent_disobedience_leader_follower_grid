@@ -3,6 +3,7 @@ from typing import Hashable
 
 from ray.rllib.algorithms import AlgorithmConfig, PPOConfig
 from ray.rllib.algorithms.dqn import DQNConfig
+from ray.rllib.algorithms.sac import SACConfig
 from ray.rllib.core.rl_module import MultiRLModuleSpec, RLModuleSpec
 from ray.rllib.env.multi_agent_episode import MultiAgentEpisode
 from ray.rllib.examples.rl_modules.classes.random_rlm import RandomRLModule
@@ -34,9 +35,29 @@ def create_algorithm_config(algorithm_name: str) -> AlgorithmConfig:
         )
 
     if algorithm_name == "ppo":
+
         config = PPOConfig().training(
             entropy_coeff=0.2,
-            train_batch_size=256,
+            train_batch_size=2048,
+        )
+
+    if algorithm_name == "sac":
+        # Discrete SAC: off-policy, auto-tuned entropy target 
+        # so the policy doesn't collapse to deterministic tie-breaking. 
+        config = SACConfig().training(
+            replay_buffer_config={
+                "type": "MultiAgentPrioritizedEpisodeReplayBuffer",
+                "capacity": 100_000,
+                "alpha": 0.6,
+                "beta": 0.4,
+            },
+            train_batch_size_per_learner=2048,
+            num_steps_sampled_before_learning_starts=300,
+            initial_alpha=0.2,
+        ).env_runners(
+            # Turn-based multi-agent: per-agent episode times don't work with
+            # env-step chunk boundaries, so we are using whole episodes only.
+            batch_mode="complete_episodes",
         )
 
     if config is None:
