@@ -7,24 +7,6 @@ from ray.rllib import MultiAgentEnv
 from ray.rllib.utils.typing import MultiAgentDict
 
 
-# Small per-step penalty applied to the proposer's reward whenever the step doesn't terminate on goal or lava
-# this encourages the proposer to find the goal faster and 
-# avoid "spinning in place" behavior where it just turns without moving forward
-STEP_PENALTY = -0.03
-
-# We use reward shaping. reward = DISTANCE_SHAPING_COEFF * (prev_dist - new_dist).
-# Gives dense signal toward goal so RL algorithms can learn on larger grids where the
-# random policy never stumbles into the sparse terminal reward.
-DISTANCE_SHAPING_COEFF = 0.05
-
-# Extra penalty applied when the proposer proposes `forward` but the agent doesn't move because a wall blocked it.
-# Without this, wall-bumping costs the same as turning, giving the RL no feedback to avoid it.
-WALL_BUMP_PENALTY = -0.05
-
-# Extra penalty applied to the proposer whenever the validator rejects the proposal
-VALIDATOR_REJECT_PENALTY = -0.07
-
-
 class EnvironmentAction(IntEnum):
     NO_OP = 0
     TURN_LEFT = 1
@@ -195,8 +177,6 @@ class GridWorldEnv(MultiAgentEnv):
             self.agent_pos = np.array(candidates[idx], dtype=np.int32)
             self.agent_dir = int(self.rng.integers(0, 4))
 
-        self._prev_goal_dist = self._goal_distance()
-
         if self.render:
             self.render_env()
 
@@ -250,7 +230,6 @@ class GridWorldEnv(MultiAgentEnv):
         validator_reward = 0
 
         if action == EnvironmentAction.NO_OP:
-            proposer_reward += VALIDATOR_REJECT_PENALTY
             if self._proposer_action != ProposerAction.forward:
                 validator_reward = -1
             else:
@@ -276,7 +255,6 @@ class GridWorldEnv(MultiAgentEnv):
         elif action == EnvironmentAction.TURN_RIGHT:
             self.agent_dir = (self.agent_dir + 1) % 4
 
-        bumped_wall = False
         if action == EnvironmentAction.MOVE_FORWARD:
             forward_pos = self._forward_position()
 
@@ -289,24 +267,13 @@ class GridWorldEnv(MultiAgentEnv):
                 # reward for agent at goal (terminal)
                 elif np.array_equal(self.agent_pos, self.goal_pos):
                     self.done = True
-                    return 5
-            else:
-                bumped_wall = True
+                    return 1
         elif action == EnvironmentAction.NO_OP:
             pass
         elif action not in (EnvironmentAction.TURN_LEFT, EnvironmentAction.TURN_RIGHT):
             raise ValueError("Invalid action.")
 
-        new_dist = self._goal_distance()
-        shaping = DISTANCE_SHAPING_COEFF * (self._prev_goal_dist - new_dist)
-        self._prev_goal_dist = new_dist
-        reward = STEP_PENALTY + shaping
-        if bumped_wall:
-            reward += WALL_BUMP_PENALTY
-        return reward
-
-    def _goal_distance(self) -> int:
-        return int(abs(self.agent_pos[0] - self.goal_pos[0]) + abs(self.agent_pos[1] - self.goal_pos[1]))
+        return 0
 
     def step(
             self, action_dict: MultiAgentDict

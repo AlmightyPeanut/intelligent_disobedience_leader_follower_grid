@@ -29,5 +29,5 @@ class TestEnv:
         _, reward, terminated, _, _ = env.step({
             "single_agent": EnvironmentAction.MOVE_FORWARD
         })
-        assert reward["single_agent"] == 5
+        assert reward["single_agent"] == 1
         assert terminated["__all__"]
