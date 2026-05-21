@@ -60,6 +60,7 @@ class GridWorldEnv(MultiAgentEnv):
             record_render: bool = False,
             single_agent: bool = False,
             proposer_sees_lava: bool = False,
+            randomize_spawn: bool = False,
             seed=None,
     ):
         super().__init__()
@@ -71,6 +72,7 @@ class GridWorldEnv(MultiAgentEnv):
         self.agent_view_radius = size - 1
         self.max_steps = max_steps
         self.proposer_sees_lava = proposer_sees_lava
+        self.randomize_spawn = randomize_spawn
         self._steps = 0
         self.render = render
 
@@ -160,6 +162,21 @@ class GridWorldEnv(MultiAgentEnv):
         elif self.num_lava_tiles > 0:
             self.lava_positions = self._generate_lava_positions()
 
+        # Randomized spawn for RL training
+        # In evaluation this is disabled to reduce variance among models
+        if self.randomize_spawn:
+            lava_set = set(tuple(p) for p in self.lava_positions)
+            goal_cell = tuple(self.goal_pos.tolist())
+            candidates = [
+                (r, c)
+                for r in range(1, self._size_with_walls - 1)
+                for c in range(1, self._size_with_walls - 1)
+                if (r, c) not in lava_set and (r, c) != goal_cell
+            ]
+            idx = int(self.rng.integers(0, len(candidates)))
+            self.agent_pos = np.array(candidates[idx], dtype=np.int32)
+            self.agent_dir = int(self.rng.integers(0, 4))
+
         if self.render:
             self.render_env()
 
@@ -238,21 +255,22 @@ class GridWorldEnv(MultiAgentEnv):
         elif action == EnvironmentAction.TURN_RIGHT:
             self.agent_dir = (self.agent_dir + 1) % 4
 
-        elif action == EnvironmentAction.MOVE_FORWARD:
+        if action == EnvironmentAction.MOVE_FORWARD:
             forward_pos = self._forward_position()
 
             if self.walls[forward_pos[0], forward_pos[1]] == 0:
                 self.agent_pos = forward_pos
-
+                # reward for agent at lava (terminal)
                 if tuple(self.agent_pos) in self.lava_positions:
                     self.done = True
                     return -1
+                # reward for agent at goal (terminal)
                 elif np.array_equal(self.agent_pos, self.goal_pos):
                     self.done = True
                     return 1
         elif action == EnvironmentAction.NO_OP:
             pass
-        else:
+        elif action not in (EnvironmentAction.TURN_LEFT, EnvironmentAction.TURN_RIGHT):
             raise ValueError("Invalid action.")
 
         return 0

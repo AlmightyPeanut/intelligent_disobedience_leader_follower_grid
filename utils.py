@@ -6,13 +6,19 @@ import gymnasium as gym
 
 from ray.rllib.algorithms.dqn.torch.default_dqn_torch_rl_module import DefaultDQNTorchRLModule
 from ray.rllib.algorithms.ppo.torch.default_ppo_torch_rl_module import DefaultPPOTorchRLModule
+from ray.rllib.algorithms.sac.torch.default_sac_torch_rl_module import DefaultSACTorchRLModule
 
 from env import ProposerAction, ValidatorAction, EnvironmentAction
-from rl_modules.catalog.catalog import DQNCatalogWithImageActionEncoder, PPOCatalogWithImageActionEncoder
+from rl_modules.catalog.catalog import (
+    DQNCatalogWithImageActionEncoder,
+    PPOCatalogWithImageActionEncoder,
+    SACCatalogWithImageActionEncoder,
+)
 from rl_modules.dqn_modules import LearnedValidatorDQN
 
-TUNER_MODEL_PATH = '/Users/benedikt/PycharmProjects/intelligent_disobedience_leader_follower_grid/new/best_tuner_model/'
-TRAIN_MODEL_PATH = '/Users/benedikt/PycharmProjects/intelligent_disobedience_leader_follower_grid/new/best_train_model/'
+_REPO_ROOT = Path(__file__).resolve().parent
+TUNER_MODEL_PATH = str(_REPO_ROOT / "best_tuner_model") + "/"
+TRAIN_MODEL_PATH = str(_REPO_ROOT / "best_train_model") + "/"
 
 PROPOSER_ACTION_SPACE = gym.spaces.Discrete(len(ProposerAction))
 VALIDATOR_ACTION_SPACE = gym.spaces.Discrete(len(ValidatorAction))
@@ -20,17 +26,20 @@ SINGLE_AGENT_ACTION_SPACE = gym.spaces.Discrete(len(EnvironmentAction))
 
 PROPOSER_ALGORITHM_MODULES = {
     "dqn": DefaultDQNTorchRLModule,
-    "ppo": DefaultPPOTorchRLModule
+    "ppo": DefaultPPOTorchRLModule,
+    "sac": DefaultSACTorchRLModule,
 }
 
 VALIDATOR_ALGORITHM_MODULES = {
     "dqn": LearnedValidatorDQN,
     "ppo": DefaultPPOTorchRLModule,
+    "sac": DefaultSACTorchRLModule,
 }
 
 SINGLE_AGENT_ALGORITHM_MODULES = {
     "dqn": DefaultDQNTorchRLModule,
     "ppo": DefaultPPOTorchRLModule,
+    "sac": DefaultSACTorchRLModule,
 }
 
 DEFAULT_SINGLE_AGENT_CONV_MODEL_CONFIG = {
@@ -57,6 +66,7 @@ DEFAULT_MULTI_AGENT_MODEL_CONFIG = {
 CATALOG_CLASS = {
     "dqn": DQNCatalogWithImageActionEncoder,
     "ppo": PPOCatalogWithImageActionEncoder,
+    "sac": SACCatalogWithImageActionEncoder,
 }
 
 
@@ -108,8 +118,8 @@ AGENT_CONFIGS = [
     ),
 ]
 
-LOG_DIR = Path("/Users/benedikt/PycharmProjects/intelligent_disobedience_leader_follower_grid/new/logs")
+LOG_DIR = _REPO_ROOT / "logs"
 GRID_SIZE = 3
 NUM_LAVA_TILES = 2
-MAX_ENV_STEPS = 128
+MAX_ENV_STEPS = 2048
 TRAINING_ITERATIONS = 1000
